@@ -20,6 +20,7 @@ SPIKES_DIFF :: TILE_SIZE - SPIKES_DEPTH
 // Type Aliases (reduce typing!) Note, they must come after rl definition
 Vec2 :: rl.Vector2
 Rect :: rl.Rectangle
+//Color :: rl.Color
 
 Direction :: enum {
     Up,
@@ -29,10 +30,11 @@ Direction :: enum {
 }
 
 Game_State :: struct {
-    camera:      rl.Camera2D,
-    entities:    [dynamic]Entity,
-    solid_tiles: [dynamic]Rect,
-    spikes:      map[Entity_Id]Direction,
+    camera:       rl.Camera2D,
+    entities:     [dynamic]Entity,
+    solid_tiles:  [dynamic]Rect,
+    spikes:       map[Entity_Id]Direction,
+    debug_shapes: [dynamic]Debug_Shape,
 }
 
 Entity_Id :: distinct int
@@ -215,7 +217,34 @@ main :: proc() {
 
         // Draw the player after the level tiles!
         rl.DrawRectangleLinesEx(player.collider, 1, rl.GREEN)
+
+        // Draw the current FPS
+        rl.DrawFPS(20, 20)
+
+        // testing... get rid
+        debug_draw_rect(20, 100, 4, rl.GRAY)
+        debug_draw_line(100, 200, 10, rl.GREEN)
+        debug_draw_circle(50, 20, rl.PINK)
+        // testing... get rid
+
+        for d in gs.debug_shapes {
+            switch v in d {
+            case Debug_Line:
+                rl.DrawLineEx(v.start, v.end, v.thickness, v.color)
+            case Debug_Rect:
+                rl.DrawRectangleLinesEx(
+                    Rect{v.pos.x, v.pos.y, v.size.x, v.size.y},
+                    v.thickness,
+                    v.color,
+                )
+            case Debug_Circle:
+                rl.DrawCircleLinesV(v.pos, v.radius, v.color)
+            }
+        }
         rl.EndMode2D()
         rl.EndDrawing()
+
+        // clear the array of debug_shapes after drawing
+        clear(&gs.debug_shapes)
     }
 }
