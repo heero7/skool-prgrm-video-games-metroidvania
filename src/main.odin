@@ -1,5 +1,6 @@
 package main
 
+import "core:flags"
 import "core:fmt"
 import "core:os"
 import "core:time"
@@ -39,6 +40,12 @@ Game_State :: struct {
 
 Entity_Id :: distinct int
 
+Entity_Behaviors :: enum {
+    Walk,
+    Flip_At_Wall,
+    Flip_At_Edge,
+}
+
 /*
  Allow the Rect to be accessed without calling player.Rect.
  i.e. player.x => is the same as player.Rect.x
@@ -48,11 +55,10 @@ Entity :: struct {
     vel:                        Vec2,
     move_speed:                 f32,
     jump_force:                 f32,
-    is_grounded:                bool, // todo: delete
-    is_dead:                    bool, // todo delete
     on_enter, on_stay, on_exit: proc(self_id, other_id: Entity_Id),
     entity_ids:                 map[Entity_Id]time.Time,
     flags:                      bit_set[Entity_Flags],
+    behaviors:                  bit_set[Entity_Behaviors],
     debug_color:                rl.Color,
 }
 
@@ -103,6 +109,16 @@ main :: proc() {
         x, y: f32
         for v in level_data {
             switch v {
+            case 'e':
+                entity_create(
+                    Entity {
+                        collider = Rect{x, y, TILE_SIZE, TILE_SIZE},
+                        move_speed = 50,
+                        flags = {.Debug_Draw},
+                        behaviors = {.Walk, .Flip_At_Wall, .Flip_At_Edge},
+                        debug_color = rl.RED,
+                    },
+                )
             case '\n':
                 y += TILE_SIZE
                 x = 0
@@ -180,24 +196,27 @@ main :: proc() {
     num := len(&gs.solid_tiles)
     assert(num > 0, "Failed to populate level tiles")
 
-
     for !rl.WindowShouldClose() {
         dt := rl.GetFrameTime()
         input_x: f32
 
         player := entity_get(player_id)
 
-        if (rl.IsKeyDown(.D)) do input_x += 1
-        if (rl.IsKeyDown(.A)) do input_x -= 1
+        //if (rl.IsKeyDown(.D)) do input_x += 1
+        //if (rl.IsKeyDown(.A)) do input_x -= 1
 
-        if rl.IsKeyPressed(.SPACE) && player.is_grounded {
+        if (rl.IsKeyDown(.RIGHT)) do input_x += 1
+        if (rl.IsKeyDown(.LEFT)) do input_x -= 1
+
+        if rl.IsKeyPressed(.SPACE) && .Grounded in player.flags {
             player.vel.y = -player.jump_force
-            player.is_grounded = false
+            player.flags -= {.Grounded}
         }
 
         player.vel.x = input_x * player.move_speed
 
         physics_update(gs.entities[:], gs.solid_tiles[:], dt)
+        behavior_update(gs.entities[:], gs.solid_tiles[:], dt)
 
         // End Process
         rl.BeginDrawing()
@@ -220,12 +239,6 @@ main :: proc() {
 
         // Draw the current FPS
         rl.DrawFPS(20, 20)
-
-        // testing... get rid
-        debug_draw_rect(20, 100, 4, rl.GRAY)
-        debug_draw_line(100, 200, 10, rl.GREEN)
-        debug_draw_circle(50, 20, rl.PINK)
-        // testing... get rid
 
         for d in gs.debug_shapes {
             switch v in d {

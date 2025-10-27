@@ -7,6 +7,67 @@ import rl "vendor:raylib"
 PHYSICS_ITERATIONS :: 8
 GRAVITY :: 5
 TERMINAL_VELOCITY :: 1200
+COLLISION_EPSILON :: 0.01
+
+/*
+   Loop through all the targets (i.e, static_colliders so for this example it
+   would be all the # in the level data). Gets the for corners of each Rect
+   (p,q,r,s => remember that + is down, and - is up). Very similar to Unity,
+   Godot, etc. Returns back a hit structure of what you hit and if you've hit
+   anything
+
+   start -> where to start the line
+   magnitude -> where to send the line and how long
+   targets -> what to compare against (i.e. static colliders, players, etc!)
+   allocator -> the memory allocator strategy
+ */
+raycast :: proc(
+    start, magnitude: Vec2,
+    targets: []Rect,
+    allocator := context.temp_allocator,
+) -> (
+    hits: []Vec2,
+    ok: bool,
+) {
+    hit_store := make([dynamic]Vec2, allocator)
+
+    for t in targets {
+        // Get the four points of this curret target.
+        // todo: might this be better renamed (tpLeft, tpRight, btmLeft,
+        // btmRight)?
+        p, q, r, s: Vec2 =
+            {t.x, t.y},
+            {t.x, t.y + t.height},
+            {t.x + t.width, t.y + t.height},
+            {t.x + t.width, t.y}
+
+        // create 4 lines that are Vec2. reads like this src => dest
+        // p,q,r,s are all Vec2's
+        // 2: Vec2 to Vec2 src -> dest
+        // 4: Vec2,Vec2 pairs
+        // it reads, here are 4 elements that are each Vec2,Vec2
+        lines := [4][2]Vec2{{p, q}, {q, r}, {r, s}, {s, p}}
+        for line in lines {
+            point: Vec2
+            // essentially we are checking if any of the lines are overlapping
+            // this allows us to know how many points we're colliding with
+            // we wouldn't get this over with checking rectangles
+            if rl.CheckCollisionLines(
+                start,
+                start + magnitude,
+                line[0],
+                line[1],
+                &point,
+            ) {
+                append(&hit_store, point)
+            }
+        }
+
+        color := len(hit_store) > 0 ? rl.GREEN : rl.RED
+        debug_draw_line(start, start + magnitude, 1, color)
+    }
+    return hit_store[:], len(hit_store) > 0
+}
 
 physics_update :: proc(entities: []Entity, static_colliders: []Rect, dt: f32) {
     for &entity, e_id in entities {
@@ -30,7 +91,6 @@ physics_update :: proc(entities: []Entity, static_colliders: []Rect, dt: f32) {
 
                 // Handle vertical collisions first
                 entity.y += entity.vel.y * step
-                entity.is_grounded = false
                 entity.flags -= {.Grounded}
 
                 // static is not a keyword!
@@ -41,7 +101,6 @@ physics_update :: proc(entities: []Entity, static_colliders: []Rect, dt: f32) {
                         // The if is handling when the collision is above or below the static collider
                         // Either way, no matter what we will set the velocity to 0
                         if entity.vel.y > 0 {
-                            entity.is_grounded = true
                             entity.flags += {.Grounded}
                             entity.y = static.y - entity.height // todo(math): how can we draw this?
                             // ^^ I  think this is because we need to find the distance AWAY from the
@@ -55,6 +114,9 @@ physics_update :: proc(entities: []Entity, static_colliders: []Rect, dt: f32) {
                         break
                     }
                 }
+
+                if entity.vel.x < 0 do entity.flags += {.Left}
+                if entity.vel.x > 0 do entity.flags -= {.Left}
 
                 entity.x += entity.vel.x * step
                 for static in static_colliders {
