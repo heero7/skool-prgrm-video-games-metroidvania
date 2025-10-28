@@ -6,6 +6,7 @@ Entity_Flags :: enum {
     Kinematic,
     Debug_Draw,
     Left,
+    Immortal,
 }
 
 // this adds the entity you create to the entities array!
@@ -31,4 +32,12 @@ entity_get :: proc(id: Entity_Id) -> ^Entity {
         return nil
     }
     return &gs.entities[id]
+}
+
+entity_update :: proc(entities: []Entity, dt: f32) {
+    for &e in entities {
+        if e.health == 0 && .Immortal not_in e.flags {
+            e.flags += {.Dead}
+        }
+    }
 }

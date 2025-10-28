@@ -30,12 +30,24 @@ Direction :: enum {
     Left,
 }
 
+// Convenience vectors
+UP :: Vec2{0, -1}
+RIGHT :: Vec2{1, 0}
+DOWN :: Vec2{0, 1}
+LEFT :: Vec2{-1, 0}
+
+PLAYER_SAFE_RESET_TIME :: 1
+
 Game_State :: struct {
-    camera:       rl.Camera2D,
-    entities:     [dynamic]Entity,
-    solid_tiles:  [dynamic]Rect,
-    spikes:       map[Entity_Id]Direction,
-    debug_shapes: [dynamic]Debug_Shape,
+    player_id:             Entity_Id,
+    safe_position:         Vec2,
+    safe_reset_timer:      f32,
+    player_uncontrollable: bool,
+    camera:                rl.Camera2D,
+    entities:              [dynamic]Entity,
+    solid_tiles:           [dynamic]Rect,
+    spikes:                map[Entity_Id]Direction,
+    debug_shapes:          [dynamic]Debug_Shape,
 }
 
 Entity_Id :: distinct int
@@ -59,14 +71,36 @@ Entity :: struct {
     entity_ids:                 map[Entity_Id]time.Time,
     flags:                      bit_set[Entity_Flags],
     behaviors:                  bit_set[Entity_Behaviors],
+    health:                     int,
+    max_health:                 int,
+    on_hit_damage:              int,
     debug_color:                rl.Color,
 }
 
 gs: Game_State
 
+player_on_enter :: proc(self_id, other_id: Entity_Id) {
+    player := entity_get(self_id)
+    other := entity_get(other_id)
+
+    if other.on_hit_damage > 0 {
+        player.health -= other.on_hit_damage
+    }
+}
+
 spike_on_enter :: proc(self_id, other_id: Entity_Id) {
     me := entity_get(self_id)
     them := entity_get(other_id)
+
+    if other_id == gs.player_id {
+        them.x = gs.safe_position.x
+        them.y = gs.safe_position.y
+
+        them.vel = 0
+
+        gs.safe_reset_timer = PLAYER_SAFE_RESET_TIME
+        gs.player_uncontrollable = true
+    }
 
     dir := gs.spikes[self_id]
 
@@ -98,8 +132,6 @@ main :: proc() {
         camera = rl.Camera2D{zoom = ZOOM},
     }
 
-    player_id: Entity_Id
-
     // Can create your own scope so that similarly used variables (like x & y) are
     // able to be used. Pretty neat feature.
     {
@@ -127,7 +159,7 @@ main :: proc() {
                 append(&gs.solid_tiles, Rect{x, y, TILE_SIZE, TILE_SIZE})
 
             case 'P':
-                player_id = entity_create(
+                gs.player_id = entity_create(
                     {
                         x = x,
                         y = y,
@@ -135,6 +167,9 @@ main :: proc() {
                         height = 38,
                         jump_force = 650,
                         move_speed = 280,
+                        on_enter = player_on_enter,
+                        health = 5,
+                        max_health = 5,
                     },
                 )
             case '^':
@@ -147,7 +182,8 @@ main :: proc() {
                             SPIKES_DEPTH,
                         },
                         on_enter = spike_on_enter,
-                        flags = {.Kinematic, .Debug_Draw},
+                        on_hit_damage = 1,
+                        flags = {.Kinematic, .Debug_Draw, .Immortal},
                         debug_color = rl.YELLOW,
                     },
                 )
@@ -157,7 +193,8 @@ main :: proc() {
                     Entity {
                         collider = Rect{x, y, SPIKES_DEPTH, SPIKES_BREADTH},
                         on_enter = spike_on_enter,
-                        flags = {.Kinematic, .Debug_Draw},
+                        on_hit_damage = 1,
+                        flags = {.Kinematic, .Debug_Draw, .Immortal},
                         debug_color = rl.YELLOW,
                     },
                 )
@@ -172,7 +209,8 @@ main :: proc() {
                             SPIKES_BREADTH,
                         },
                         on_enter = spike_on_enter,
-                        flags = {.Kinematic, .Debug_Draw},
+                        on_hit_damage = 1,
+                        flags = {.Kinematic, .Debug_Draw, .Immortal},
                         debug_color = rl.YELLOW,
                     },
                 )
@@ -182,7 +220,8 @@ main :: proc() {
                     Entity {
                         collider = Rect{x, y, SPIKES_BREADTH, SPIKES_DEPTH},
                         on_enter = spike_on_enter,
-                        flags = {.Kinematic, .Debug_Draw},
+                        on_hit_damage = 1,
+                        flags = {.Kinematic, .Debug_Draw, .Immortal},
                         debug_color = rl.YELLOW,
                     },
                 )
@@ -198,25 +237,90 @@ main :: proc() {
 
     for !rl.WindowShouldClose() {
         dt := rl.GetFrameTime()
+        gs.safe_reset_timer -= dt
+        if gs.safe_reset_timer <= 0 {
+            gs.player_uncontrollable = false
+        }
         input_x: f32
 
-        player := entity_get(player_id)
+        player := entity_get(gs.player_id)
 
-        //if (rl.IsKeyDown(.D)) do input_x += 1
-        //if (rl.IsKeyDown(.A)) do input_x -= 1
+        if !gs.player_uncontrollable {
+            //if (rl.IsKeyDown(.D)) do input_x += 1
+            //if (rl.IsKeyDown(.A)) do input_x -= 1
 
-        if (rl.IsKeyDown(.RIGHT)) do input_x += 1
-        if (rl.IsKeyDown(.LEFT)) do input_x -= 1
+            if (rl.IsKeyDown(.RIGHT)) do input_x += 1
+            if (rl.IsKeyDown(.LEFT)) do input_x -= 1
 
-        if rl.IsKeyPressed(.SPACE) && .Grounded in player.flags {
-            player.vel.y = -player.jump_force
-            player.flags -= {.Grounded}
+            if rl.IsKeyPressed(.SPACE) && .Grounded in player.flags {
+                player.vel.y = -player.jump_force
+                player.flags -= {.Grounded}
+            }
+            player.vel.x = input_x * player.move_speed
         }
 
-        player.vel.x = input_x * player.move_speed
 
+        entity_update(gs.entities[:], dt)
         physics_update(gs.entities[:], gs.solid_tiles[:], dt)
         behavior_update(gs.entities[:], gs.solid_tiles[:], dt)
+
+        /*
+	   Determines the last "safe area" for the player to return to.
+	   It will set the position as a Vec2. It will only ever be on
+	   the ground. It checks 4 positions, the corner "legs" of the bounding
+	   box (the first two checks that check for ground, the point down), 
+	   the top corners of the bounding box, (check above).
+
+	   If at least one raycast doesn't detect ground it will use the last
+	   position.
+	   If at least one raycast detects a hazard, it will use the last
+	   position.
+	 */
+        if .Grounded in player.flags {
+            pos := Vec2{player.x, player.y}
+            size := Vec2{player.width, player.height}
+
+            targets := make([dynamic]Rect, context.temp_allocator)
+            // remember an entity can only be a spike,player,enemy
+            for e, i in gs.entities {
+                if Entity_Id(i) == gs.player_id do continue
+                if .Dead not_in e.flags {
+                    append(&targets, e.collider)
+                }
+            }
+
+            safety_check: {
+                _, hit_ground_left := raycast(
+                    pos + {0, size.y},
+                    DOWN * 2,
+                    gs.solid_tiles[:],
+                )
+                if !hit_ground_left do break safety_check
+
+                _, hit_ground_right := raycast(
+                    pos + size,
+                    DOWN * 2,
+                    gs.solid_tiles[:],
+                )
+                if !hit_ground_right do break safety_check
+
+                _, hit_entity_left := raycast(
+                    pos,
+                    LEFT * TILE_SIZE,
+                    targets[:],
+                )
+                if hit_entity_left do break safety_check
+
+                _, hit_entity_right := raycast(
+                    pos + {size.x, 0},
+                    RIGHT * TILE_SIZE,
+                    targets[:],
+                )
+                if hit_entity_right do break safety_check
+
+                gs.safe_position = pos
+            }
+        }
 
         // End Process
         rl.BeginDrawing()
@@ -229,10 +333,17 @@ main :: proc() {
         }
 
         for e in gs.entities {
-            if .Debug_Draw in e.flags {
+            if .Debug_Draw in e.flags && .Dead not_in e.flags {
                 rl.DrawRectangleLinesEx(e.collider, 1, e.debug_color)
             }
         }
+
+        debug_draw_rect(
+            gs.safe_position,
+            {player.width, player.height},
+            1,
+            rl.BLUE,
+        )
 
         // Draw the player after the level tiles!
         rl.DrawRectangleLinesEx(player.collider, 1, rl.GREEN)
