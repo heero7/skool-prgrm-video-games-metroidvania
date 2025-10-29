@@ -59,6 +59,26 @@ Entity_Behaviors :: enum {
 }
 
 /*
+   Holds the data for an animation from a texture
+   image.
+
+   size: frame size
+   offset: how to line according to the collider
+   start: 0 index beginning frame number
+   end: 0 index final frame
+   row: 0 index row from the texture image
+   time: how long this frame lasts
+ */
+Animation :: struct {
+    size:   Vec2,
+    offset: Vec2,
+    start:  int,
+    end:    int,
+    row:    int,
+    time:   f32,
+}
+
+/*
  Allow the Rect to be accessed without calling player.Rect.
  i.e. player.x => is the same as player.Rect.x
  */
@@ -75,10 +95,19 @@ Entity :: struct {
     max_health:                 int,
     on_hit_damage:              int,
     debug_color:                rl.Color,
+    texture:                    ^rl.Texture,
+    animations:                 map[string]Animation,
+    current_anim_name:          string,
+    current_anim_frame:         int,
+    animation_timer:            f32,
 }
 
 gs: Game_State
 
+/*
+   Used for moving entities, static ones will not 
+   actually allow this to happen.
+ */
 player_on_enter :: proc(self_id, other_id: Entity_Id) {
     player := entity_get(self_id)
     other := entity_get(other_id)
@@ -132,6 +161,45 @@ main :: proc() {
         camera = rl.Camera2D{zoom = ZOOM},
     }
 
+    // Load textures
+    player_tex := rl.LoadTexture("assets/textures/player_120x80.png")
+
+    player_anim_idle := Animation {
+        size   = {120, 80},
+        offset = {52, 42},
+        start  = 0,
+        end    = 9,
+        row    = 0,
+        time   = 0.15,
+    }
+
+    player_anim_jump := Animation {
+        size   = {120, 80},
+        offset = {52, 42},
+        start  = 0,
+        end    = 2,
+        row    = 1,
+        time   = 0.15,
+    }
+
+    player_anim_jump_fall_inbetween := Animation {
+        size   = {120, 80},
+        offset = {52, 42},
+        start  = 3,
+        end    = 4,
+        row    = 1,
+        time   = 0.15,
+    }
+
+    player_anim_fall := Animation {
+        size   = {120, 80},
+        offset = {52, 42},
+        start  = 5,
+        end    = 7,
+        row    = 1,
+        time   = 0.15,
+    }
+
     // Can create your own scope so that similarly used variables (like x & y) are
     // able to be used. Pretty neat feature.
     {
@@ -142,12 +210,15 @@ main :: proc() {
         for v in level_data {
             switch v {
             case 'e':
-                entity_create(
+                en := entity_create(
                     Entity {
                         collider = Rect{x, y, TILE_SIZE, TILE_SIZE},
                         move_speed = 50,
                         flags = {.Debug_Draw},
                         behaviors = {.Walk, .Flip_At_Wall, .Flip_At_Edge},
+                        health = 2,
+                        max_health = 2,
+                        on_hit_damage = 1,
                         debug_color = rl.RED,
                     },
                 )
@@ -170,8 +241,19 @@ main :: proc() {
                         on_enter = player_on_enter,
                         health = 5,
                         max_health = 5,
+                        texture = &player_tex,
+                        current_anim_name = "idle",
                     },
                 )
+
+                // load the player to load the animations
+                p := entity_get(gs.player_id)
+
+                p.animations["idle"] = player_anim_idle
+                p.animations["jump"] = player_anim_jump
+                p.animations["jump_fall_inbetween"] =
+                    player_anim_jump_fall_inbetween
+                p.animations["fall"] = player_anim_fall
             case '^':
                 id := entity_create(
                     Entity {
@@ -255,6 +337,15 @@ main :: proc() {
             if rl.IsKeyPressed(.SPACE) && .Grounded in player.flags {
                 player.vel.y = -player.jump_force
                 player.flags -= {.Grounded}
+                player.current_anim_name = "jump"
+            }
+
+            if player.vel.y >= 0 {
+                if .Grounded not_in player.flags {
+                    player.current_anim_name = "fall"
+                } else {
+                    player.current_anim_name = "idle"
+                }
             }
             player.vel.x = input_x * player.move_speed
         }
@@ -332,7 +423,30 @@ main :: proc() {
             rl.DrawRectangleLinesEx(rect, 1, rl.GRAY)
         }
 
-        for e in gs.entities {
+        for &e in gs.entities {
+            if e.texture != nil {
+                e.animation_timer -= dt
+
+                anim := e.animations[e.current_anim_name]
+
+                src := Rect {
+                    f32(e.current_anim_frame) * anim.size.x,
+                    f32(anim.row) * anim.size.y,
+                    anim.size.x,
+                    anim.size.y,
+                }
+                if .Left in e.flags {
+                    src.width = -src.width
+                }
+
+                rl.DrawTextureRec(
+                    e.texture^,
+                    src,
+                    {e.x, e.y} - anim.offset,
+                    rl.WHITE,
+                )
+            }
+
             if .Debug_Draw in e.flags && .Dead not_in e.flags {
                 rl.DrawRectangleLinesEx(e.collider, 1, e.debug_color)
             }
