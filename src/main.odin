@@ -39,15 +39,15 @@ LEFT :: Vec2{-1, 0}
 PLAYER_SAFE_RESET_TIME :: 1
 
 Game_State :: struct {
-    player_id:             Entity_Id,
-    safe_position:         Vec2,
-    safe_reset_timer:      f32,
-    player_uncontrollable: bool,
-    camera:                rl.Camera2D,
-    entities:              [dynamic]Entity,
-    solid_tiles:           [dynamic]Rect,
-    spikes:                map[Entity_Id]Direction,
-    debug_shapes:          [dynamic]Debug_Shape,
+    player_id:        Entity_Id,
+    player_mv_state:  Player_Move_State,
+    safe_position:    Vec2,
+    safe_reset_timer: f32,
+    camera:           rl.Camera2D,
+    entities:         [dynamic]Entity,
+    solid_tiles:      [dynamic]Rect,
+    spikes:           map[Entity_Id]Direction,
+    debug_shapes:     [dynamic]Debug_Shape,
 }
 
 Entity_Id :: distinct int
@@ -63,7 +63,7 @@ Entity_Behaviors :: enum {
    image.
 
    size: frame size
-   offset: how to line according to the collider
+   offset: where to start drawing the image. 
    start: 0 index beginning frame number
    end: 0 index final frame
    row: 0 index row from the texture image
@@ -128,7 +128,8 @@ spike_on_enter :: proc(self_id, other_id: Entity_Id) {
         them.vel = 0
 
         gs.safe_reset_timer = PLAYER_SAFE_RESET_TIME
-        gs.player_uncontrollable = true
+        gs.player_mv_state = .Uncontrollable
+        switch_animation(them, "idle")
     }
 
     dir := gs.spikes[self_id]
@@ -170,6 +171,15 @@ main :: proc() {
         start  = 0,
         end    = 9,
         row    = 0,
+        time   = 0.15,
+    }
+
+    player_anim_run := Animation {
+        size   = {120, 80},
+        offset = {52, 42},
+        start  = 0,
+        end    = 9,
+        row    = 2,
         time   = 0.15,
     }
 
@@ -236,6 +246,8 @@ main :: proc() {
                         y = y,
                         width = 16,
                         height = 38,
+                        flags = {.Debug_Draw},
+                        debug_color = rl.GREEN,
                         jump_force = 650,
                         move_speed = 280,
                         on_enter = player_on_enter,
@@ -250,6 +262,7 @@ main :: proc() {
                 p := entity_get(gs.player_id)
 
                 p.animations["idle"] = player_anim_idle
+                p.animations["run"] = player_anim_run
                 p.animations["jump"] = player_anim_jump
                 p.animations["jump_fall_inbetween"] =
                     player_anim_jump_fall_inbetween
@@ -319,38 +332,11 @@ main :: proc() {
 
     for !rl.WindowShouldClose() {
         dt := rl.GetFrameTime()
-        gs.safe_reset_timer -= dt
-        if gs.safe_reset_timer <= 0 {
-            gs.player_uncontrollable = false
-        }
-        input_x: f32
 
         player := entity_get(gs.player_id)
 
-        if !gs.player_uncontrollable {
-            //if (rl.IsKeyDown(.D)) do input_x += 1
-            //if (rl.IsKeyDown(.A)) do input_x -= 1
 
-            if (rl.IsKeyDown(.RIGHT)) do input_x += 1
-            if (rl.IsKeyDown(.LEFT)) do input_x -= 1
-
-            if rl.IsKeyPressed(.SPACE) && .Grounded in player.flags {
-                player.vel.y = -player.jump_force
-                player.flags -= {.Grounded}
-                player.current_anim_name = "jump"
-            }
-
-            if player.vel.y >= 0 {
-                if .Grounded not_in player.flags {
-                    player.current_anim_name = "fall"
-                } else {
-                    player.current_anim_name = "idle"
-                }
-            }
-            player.vel.x = input_x * player.move_speed
-        }
-
-
+        player_update(&gs, dt)
         entity_update(gs.entities[:], dt)
         physics_update(gs.entities[:], gs.solid_tiles[:], dt)
         behavior_update(gs.entities[:], gs.solid_tiles[:], dt)
@@ -448,10 +434,18 @@ main :: proc() {
             }
 
             if .Debug_Draw in e.flags && .Dead not_in e.flags {
-                rl.DrawRectangleLinesEx(e.collider, 1, e.debug_color)
+                //rl.DrawRectangleLinesEx(e.collider, 1, e.debug_color)
+                // i think we can do both
+                debug_draw_rect(
+                    {e.collider.x, e.collider.y},
+                    {e.width, e.height},
+                    1,
+                    e.debug_color,
+                )
             }
         }
 
+        // Draw the safe position
         debug_draw_rect(
             gs.safe_position,
             {player.width, player.height},
@@ -460,7 +454,7 @@ main :: proc() {
         )
 
         // Draw the player after the level tiles!
-        rl.DrawRectangleLinesEx(player.collider, 1, rl.GREEN)
+        //rl.DrawRectangleLinesEx(player.collider, 1, rl.GREEN)
 
         // Draw the current FPS
         rl.DrawFPS(20, 20)

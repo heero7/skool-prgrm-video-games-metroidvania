@@ -58,3 +58,15 @@ entity_update :: proc(entities: []Entity, dt: f32) {
         }
     }
 }
+
+/*
+   Switches the animation for an entity.
+   e: The entity to switch animations.
+   name: The name of the animation to switch to.
+ */
+switch_animation :: proc(e: ^Entity, name: string) {
+    e.current_anim_name = name
+    anim := e.animations[name]
+    e.animation_timer = anim.time
+    e.current_anim_frame = anim.start
+}
