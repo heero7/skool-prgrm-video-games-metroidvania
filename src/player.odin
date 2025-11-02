@@ -3,68 +3,108 @@ package main
 import rl "vendor:raylib"
 
 Player_Move_State :: enum {
-    Uncontrollable,
-    Idle,
-    Run,
-    Jump,
-    Fall,
+  Uncontrollable,
+  Idle,
+  Run,
+  Jump,
+  Fall,
+  Attack,
 }
 
 /*
    Performs updates on the player character.
  */
 player_update :: proc(gs: ^Game_State, dt: f32) {
-    player := entity_get(gs.player_id)
+  player := entity_get(gs.player_id)
 
-    in_x: f32
-    if (rl.IsKeyDown(.T)) do in_x += 1
-    if (rl.IsKeyDown(.R)) do in_x -= 1
+  in_x: f32
+  if (rl.IsKeyDown(.T)) do in_x += 1
+  if (rl.IsKeyDown(.R)) do in_x -= 1
 
-    player.vel.x = in_x * player.move_speed
+  player.vel.x = in_x * player.move_speed
 
-    switch gs.player_mv_state {
-    case .Uncontrollable:
-        gs.safe_reset_timer -= dt
-        player.vel.x = 0
-        player.vel.y = 0
-        if gs.safe_reset_timer <= 0 {
-            gs.player_mv_state = .Idle
-            switch_animation(player, "idle")
-        }
-    case .Idle:
-        try_run(gs, player)
-        try_jump(gs, player)
-    case .Run:
-        if in_x == 0 {
-            gs.player_mv_state = .Idle
-            switch_animation(player, "idle")
-        }
-        try_jump(gs, player)
-    case .Jump:
-        if player.vel.y >= 0 {
-            gs.player_mv_state = .Fall
-            switch_animation(player, "fall")
-        }
-    case .Fall:
-        if .Grounded in player.flags {
-            gs.player_mv_state = .Idle
-            switch_animation(player, "idle")
-        }
+  switch gs.player_mv_state {
+  case .Uncontrollable:
+    gs.safe_reset_timer -= dt
+    player.vel.x = 0
+    player.vel.y = 0
+    if gs.safe_reset_timer <= 0 {
+      gs.player_mv_state = .Idle
+      switch_animation(player, "idle")
     }
+  case .Idle:
+    try_run(gs, player)
+    try_jump(gs, player)
+    try_attack(gs, player)
+  case .Run:
+    if in_x == 0 {
+      gs.player_mv_state = .Idle
+      switch_animation(player, "idle")
+    }
+    try_jump(gs, player)
+    try_attack(gs, player)
+  case .Jump:
+    if player.vel.y >= 0 {
+      gs.player_mv_state = .Fall
+      switch_animation(player, "fall")
+    }
+    try_attack(gs, player)
+  case .Fall:
+    if .Grounded in player.flags {
+      gs.player_mv_state = .Idle
+      switch_animation(player, "idle")
+    }
+    try_attack(gs, player)
+  case .Attack:
+    if .Grounded in player.flags {
+      player.vel.x = 0
+    }
+
+  }
 }
 
 try_run :: proc(gs: ^Game_State, p: ^Entity) {
-    if p.vel.x != 0 && .Grounded in p.flags {
-        gs.player_mv_state = .Run
-        switch_animation(p, "run")
-    }
+  if p.vel.x != 0 && .Grounded in p.flags {
+    gs.player_mv_state = .Run
+    switch_animation(p, "run")
+  }
 }
 
 try_jump :: proc(gs: ^Game_State, p: ^Entity) {
-    if rl.IsKeyPressed(.U) && .Grounded in p.flags {
-        p.vel.y = -p.jump_force
-        p.flags -= {.Grounded}
-        gs.player_mv_state = .Jump
-        switch_animation(p, "jump")
+  if rl.IsKeyPressed(.U) && .Grounded in p.flags {
+    p.vel.y = -p.jump_force
+    p.flags -= {.Grounded}
+    gs.player_mv_state = .Jump
+    switch_animation(p, "jump")
+  }
+}
+
+try_attack :: proc(gs: ^Game_State, p: ^Entity) {
+  if rl.IsKeyPressed(.I) {
+    switch_animation(p, "attack")
+    gs.player_mv_state = .Attack
+  }
+}
+
+player_on_finish_attack :: proc(gs: ^Game_State, p: ^Entity) {
+  switch_animation(p, "idle")
+  gs.player_mv_state = .Fall
+}
+
+player_attack_callback :: proc(gs: ^Game_State, p: ^Entity) {
+  center := Vec2{p.x, p.y}
+  center += {.Left in p.flags ? -30 + p.collider.width : 30, 20}
+
+  for &e, i in gs.entities {
+    id := Entity_Id(i)
+
+    if id == gs.player_id do continue
+    if .Dead in e.flags do continue
+    if .Immortal in e.flags do continue
+
+
+    if rl.CheckCollisionCircleRec(center, 25, e.collider) {
+      entity_damage(Entity_Id(i), 1)
     }
+  }
 }
