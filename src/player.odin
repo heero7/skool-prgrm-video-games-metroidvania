@@ -63,6 +63,7 @@ player_update :: proc(gs: ^Game_State, dt: f32) {
   }
 }
 
+
 try_run :: proc(gs: ^Game_State, p: ^Entity) {
   if p.vel.x != 0 && .Grounded in p.flags {
     gs.player_mv_state = .Run
@@ -89,6 +90,19 @@ try_attack :: proc(gs: ^Game_State, p: ^Entity) {
 player_on_finish_attack :: proc(gs: ^Game_State, p: ^Entity) {
   switch_animation(p, "idle")
   gs.player_mv_state = .Fall
+}
+
+/*
+   Used for moving entities, static ones will not 
+   actually allow this to happen.
+ */
+player_on_enter :: proc(self_id, other_id: Entity_Id) {
+  player := entity_get(self_id)
+  other := entity_get(other_id)
+
+  if other.on_hit_damage > 0 {
+    player.health -= other.on_hit_damage
+  }
 }
 
 player_attack_callback :: proc(gs: ^Game_State, p: ^Entity) {

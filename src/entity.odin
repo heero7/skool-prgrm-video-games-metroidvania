@@ -1,6 +1,32 @@
 package main
 
 import "core:fmt"
+import "core:time"
+import rl "vendor:raylib"
+
+/*
+ Allow the Rect to be accessed without calling player.Rect.
+ i.e. player.x => is the same as player.Rect.x
+ */
+Entity :: struct {
+  using collider:             Rect,
+  vel:                        Vec2,
+  move_speed:                 f32,
+  jump_force:                 f32,
+  on_enter, on_stay, on_exit: proc(self_id, other_id: Entity_Id),
+  entity_ids:                 map[Entity_Id]time.Time,
+  flags:                      bit_set[Entity_Flags],
+  behaviors:                  bit_set[Entity_Behaviors],
+  health:                     int,
+  max_health:                 int,
+  on_hit_damage:              int,
+  debug_color:                rl.Color,
+  texture:                    ^rl.Texture,
+  animations:                 map[string]Animation,
+  current_anim_name:          string,
+  current_anim_frame:         int,
+  animation_timer:            f32,
+}
 
 Entity_Flags :: enum {
   Grounded,
@@ -9,6 +35,14 @@ Entity_Flags :: enum {
   Debug_Draw,
   Left,
   Immortal,
+}
+
+Entity_Id :: distinct int
+
+Entity_Behaviors :: enum {
+  Walk,
+  Flip_At_Wall,
+  Flip_At_Edge,
 }
 
 // this adds the entity you create to the entities array!

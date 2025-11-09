@@ -1,8 +1,10 @@
 package main
 
+import "core:encoding/json"
 import "core:flags"
 import "core:fmt"
 import "core:os"
+import "core:slice"
 import "core:time"
 import rl "vendor:raylib"
 
@@ -11,7 +13,7 @@ WINDOW_WIDTH :: 1280
 WINDOW_HEIGHT :: 720
 WINDOW_TITLE :: "MetroidVania-Slice"
 BG_COLOR :: rl.BLACK
-ZOOM :: 2
+ZOOM: f32 : 1
 TILE_SIZE :: 16
 TARGET_FPS :: 60
 SPIKES_BREADTH :: 16
@@ -45,17 +47,9 @@ Game_State :: struct {
   safe_reset_timer: f32,
   camera:           rl.Camera2D,
   entities:         [dynamic]Entity,
-  solid_tiles:      [dynamic]Rect,
+  colliders:        [dynamic]Rect,
   spikes:           map[Entity_Id]Direction,
   debug_shapes:     [dynamic]Debug_Shape,
-}
-
-Entity_Id :: distinct int
-
-Entity_Behaviors :: enum {
-  Walk,
-  Flip_At_Wall,
-  Flip_At_Edge,
 }
 
 /*
@@ -98,44 +92,35 @@ Animation :: struct {
   timed_events: [dynamic]Animation_Event,
 }
 
-/*
- Allow the Rect to be accessed without calling player.Rect.
- i.e. player.x => is the same as player.Rect.x
- */
-Entity :: struct {
-  using collider:             Rect,
-  vel:                        Vec2,
-  move_speed:                 f32,
-  jump_force:                 f32,
-  on_enter, on_stay, on_exit: proc(self_id, other_id: Entity_Id),
-  entity_ids:                 map[Entity_Id]time.Time,
-  flags:                      bit_set[Entity_Flags],
-  behaviors:                  bit_set[Entity_Behaviors],
-  health:                     int,
-  max_health:                 int,
-  on_hit_damage:              int,
-  debug_color:                rl.Color,
-  texture:                    ^rl.Texture,
-  animations:                 map[string]Animation,
-  current_anim_name:          string,
-  current_anim_frame:         int,
-  animation_timer:            f32,
+Ldtk_Data :: struct {
+  levels: []Ldtk_Level,
+}
+
+Ldtk_Level :: struct {
+  identifier:     string,
+  layerInstances: []Ldtk_Layer_Instance,
+}
+
+Ldtk_Layer_Instance :: struct {
+  __identifier:    string,
+  __type:          string,
+  __cWid, __cHei:  int,
+  intGridCsv:      []int,
+  autoLayerTiles:  []Ldtk_Auto_Layer_Tile,
+  entityInstances: []Ldtk_Entity,
+}
+
+Ldtk_Auto_Layer_Tile :: struct {
+  px: [2]f32,
+}
+
+Ldtk_Entity :: struct {
+  __identifier: string,
+  __worldX:     f32,
+  __worldY:     f32,
 }
 
 gs: Game_State
-
-/*
-   Used for moving entities, static ones will not 
-   actually allow this to happen.
- */
-player_on_enter :: proc(self_id, other_id: Entity_Id) {
-  player := entity_get(self_id)
-  other := entity_get(other_id)
-
-  if other.on_hit_damage > 0 {
-    player.health -= other.on_hit_damage
-  }
-}
 
 spike_on_enter :: proc(self_id, other_id: Entity_Id) {
   me := entity_get(self_id)
@@ -174,6 +159,113 @@ spike_on_enter :: proc(self_id, other_id: Entity_Id) {
   }
 }
 
+/*
+   Not yet fixed, but it is the old way of loading level data using
+   a simple text file.❗️What is not fixed is how to load the player
+   animations.
+ */
+load_level_simple :: proc(level_data: []byte, player_tex: ^rl.Texture2D) {
+  x, y: f32
+  for v in level_data {
+    switch v {
+    case 'e':
+      en := entity_create(
+        Entity {
+          collider = Rect{x, y, TILE_SIZE, TILE_SIZE},
+          move_speed = 50,
+          flags = {.Debug_Draw},
+          behaviors = {.Walk, .Flip_At_Wall, .Flip_At_Edge},
+          health = 2,
+          max_health = 2,
+          on_hit_damage = 1,
+          debug_color = rl.RED,
+        },
+      )
+    case '\n':
+      y += TILE_SIZE
+      x = 0
+      continue
+    case '#':
+    //append(&gs.solid_tiles, Rect{x, y, TILE_SIZE, TILE_SIZE})
+
+    case 'P':
+      gs.player_id = entity_create(
+        {
+          x = x,
+          y = y,
+          width = 16,
+          height = 38,
+          flags = {.Debug_Draw},
+          debug_color = rl.GREEN,
+          jump_force = 650,
+          move_speed = 280,
+          on_enter = player_on_enter,
+          health = 5,
+          max_health = 5,
+          texture = player_tex,
+          current_anim_name = "idle",
+        },
+      )
+
+    // load the player to load the animations
+
+    //p := entity_get(gs.player_id)
+    //p.animations["idle"] = player_anim_idle
+    //p.animations["run"] = player_anim_run
+    //p.animations["jump"] = player_anim_jump
+    //p.animations["jump_fall_inbetween"] = player_anim_jump_fall_inbetween
+    //p.animations["fall"] = player_anim_fall
+    //p.animations["attack"] = player_anim_attack
+    case '^':
+      id := entity_create(
+        Entity {
+          collider = Rect{x, y + SPIKES_DIFF, SPIKES_BREADTH, SPIKES_DEPTH},
+          on_enter = spike_on_enter,
+          on_hit_damage = 1,
+          flags = {.Kinematic, .Debug_Draw, .Immortal},
+          debug_color = rl.YELLOW,
+        },
+      )
+      gs.spikes[id] = .Up
+    case '>':
+      id := entity_create(
+        Entity {
+          collider = Rect{x, y, SPIKES_DEPTH, SPIKES_BREADTH},
+          on_enter = spike_on_enter,
+          on_hit_damage = 1,
+          flags = {.Kinematic, .Debug_Draw, .Immortal},
+          debug_color = rl.YELLOW,
+        },
+      )
+      gs.spikes[id] = .Right
+    case '<':
+      id := entity_create(
+        Entity {
+          collider = Rect{x + SPIKES_DIFF, y, SPIKES_DEPTH, SPIKES_BREADTH},
+          on_enter = spike_on_enter,
+          on_hit_damage = 1,
+          flags = {.Kinematic, .Debug_Draw, .Immortal},
+          debug_color = rl.YELLOW,
+        },
+      )
+      gs.spikes[id] = .Left
+    case 'v':
+      id := entity_create(
+        Entity {
+          collider = Rect{x, y, SPIKES_BREADTH, SPIKES_DEPTH},
+          on_enter = spike_on_enter,
+          on_hit_damage = 1,
+          flags = {.Kinematic, .Debug_Draw, .Immortal},
+          debug_color = rl.YELLOW,
+        },
+      )
+      gs.spikes[id] = .Down
+
+    }
+    x += TILE_SIZE
+  }
+}
+
 main :: proc() {
   rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
   rl.SetTargetFPS(TARGET_FPS)
@@ -181,7 +273,6 @@ main :: proc() {
   gs = Game_State {
     camera = rl.Camera2D{zoom = ZOOM},
   }
-
   // Load textures
   player_tex := rl.LoadTexture("assets/textures/player_120x80.png")
 
@@ -254,136 +345,169 @@ main :: proc() {
   // Can create your own scope so that similarly used variables (like x & y)
   // are able to be used. Pretty neat feature.
   {
-    level_data, ok := os.read_entire_file("data/simple_level.dat")
+    //level_data, ok := os.read_entire_file("data/simple_level.dat")
+    level_data, ok := os.read_entire_file(
+      "data/world.ldtk",
+      allocator = context.allocator,
+    )
     assert(ok, "Failed to read level data.")
 
-    x, y: f32
-    for v in level_data {
-      switch v {
-      case 'e':
-        en := entity_create(
-          Entity {
-            collider = Rect{x, y, TILE_SIZE, TILE_SIZE},
-            move_speed = 50,
-            flags = {.Debug_Draw},
-            behaviors = {.Walk, .Flip_At_Wall, .Flip_At_Edge},
-            health = 2,
-            max_health = 2,
-            on_hit_damage = 1,
-            debug_color = rl.RED,
-          },
-        )
-      case '\n':
-        y += TILE_SIZE
-        x = 0
-        continue
-      case '#':
-        append(&gs.solid_tiles, Rect{x, y, TILE_SIZE, TILE_SIZE})
+    // new -> we are asking for memory NOW
+    // loads data on the heap
+    ldtk_data := new(Ldtk_Data, context.temp_allocator)
+    err := json.unmarshal(
+      level_data,
+      ldtk_data,
+      allocator = context.temp_allocator,
+    )
 
-      case 'P':
-        gs.player_id = entity_create(
-          {
-            x = x,
-            y = y,
-            width = 16,
-            height = 38,
-            flags = {.Debug_Draw},
-            debug_color = rl.GREEN,
-            jump_force = 650,
-            move_speed = 280,
-            on_enter = player_on_enter,
-            health = 5,
-            max_health = 5,
-            texture = &player_tex,
-            current_anim_name = "idle",
-          },
-        )
+    if err != nil {
+      fmt.println("❌ Error after unmarshalling json, printing below ❌")
+      fmt.println(err)
+    }
 
-        // load the player to load the animations
-        p := entity_get(gs.player_id)
+    fmt.println("✅ Successfully parsed LDTK json")
 
-        p.animations["idle"] = player_anim_idle
-        p.animations["run"] = player_anim_run
-        p.animations["jump"] = player_anim_jump
-        p.animations["jump_fall_inbetween"] = player_anim_jump_fall_inbetween
-        p.animations["fall"] = player_anim_fall
-        p.animations["attack"] = player_anim_attack
-      case '^':
-        id := entity_create(
-          Entity {
-            collider = Rect{x, y + SPIKES_DIFF, SPIKES_BREADTH, SPIKES_DEPTH},
-            on_enter = spike_on_enter,
-            on_hit_damage = 1,
-            flags = {.Kinematic, .Debug_Draw, .Immortal},
-            debug_color = rl.YELLOW,
-          },
-        )
-        gs.spikes[id] = .Up
-      case '>':
-        id := entity_create(
-          Entity {
-            collider = Rect{x, y, SPIKES_DEPTH, SPIKES_BREADTH},
-            on_enter = spike_on_enter,
-            on_hit_damage = 1,
-            flags = {.Kinematic, .Debug_Draw, .Immortal},
-            debug_color = rl.YELLOW,
-          },
-        )
-        gs.spikes[id] = .Right
-      case '<':
-        id := entity_create(
-          Entity {
-            collider = Rect{x + SPIKES_DIFF, y, SPIKES_DEPTH, SPIKES_BREADTH},
-            on_enter = spike_on_enter,
-            on_hit_damage = 1,
-            flags = {.Kinematic, .Debug_Draw, .Immortal},
-            debug_color = rl.YELLOW,
-          },
-        )
-        gs.spikes[id] = .Left
-      case 'v':
-        id := entity_create(
-          Entity {
-            collider = Rect{x, y, SPIKES_BREADTH, SPIKES_DEPTH},
-            on_enter = spike_on_enter,
-            on_hit_damage = 1,
-            flags = {.Kinematic, .Debug_Draw, .Immortal},
-            debug_color = rl.YELLOW,
-          },
-        )
-        gs.spikes[id] = .Down
+    for level in ldtk_data.levels {
+      if level.identifier != "Level_0" do continue
+      for layer in level.layerInstances {
+        switch layer.__identifier {
+        case "Entities":
+          for entity in layer.entityInstances {
+            switch entity.__identifier {
+            case "Player":
+              px, py := entity.__worldX, entity.__worldY
+              gs.player_id = entity_create(
+                {
+                  x = px,
+                  y = py,
+                  width = 16,
+                  height = 38,
+                  flags = {.Debug_Draw},
+                  debug_color = rl.GREEN,
+                  jump_force = 650,
+                  move_speed = 280,
+                  on_enter = player_on_enter,
+                  health = 5,
+                  max_health = 5,
+                  texture = &player_tex,
+                  current_anim_name = "idle",
+                },
+              )
+              p := entity_get(gs.player_id)
+              p.animations["idle"] = player_anim_idle
+              p.animations["run"] = player_anim_run
+              p.animations["jump"] = player_anim_jump
+              p.animations["jump_fall_inbetween"] =
+                player_anim_jump_fall_inbetween
+              p.animations["fall"] = player_anim_fall
+              p.animations["attack"] = player_anim_attack
+            case "Door":
+            }
+          }
+        case "Collision":
+          solid_tiles := make([dynamic]Rect, context.temp_allocator)
+          x, y: f32
+          for v, i in layer.intGridCsv {
+            if v != 0 {
+              append(&solid_tiles, Rect{x, y, TILE_SIZE, TILE_SIZE})
+            }
 
+            x += TILE_SIZE
+
+            /*
+	       This is looking for the end of the row.
+	       It is looking to do (n-1+1) % n to determine when we
+	       just did the last item in the row (since this is 0
+	       indexed).
+
+	       i.e. if there are 26 columns in each row, then 0 -> 24, would
+	       not ever set this to true. On i = 25, it would set it to true.
+	       25 + 1 % 26 => 0. 25 would also represent the last item to
+	       process on that row.
+	     */
+            if (i + 1) % layer.__cWid == 0 {
+              y += TILE_SIZE
+              x = 0
+            }
+          }
+
+          wide_rect := solid_tiles[0]
+          // instead of single rects, we will have rects consolidated into
+          // larger rects. i.e.this means instead of drawing 100 squares, maybe
+          // we draw only 4 recs.
+          wide_rects := make([dynamic]Rect, context.temp_allocator)
+          for i in 1 ..< len(solid_tiles) {
+            rect := solid_tiles[i]
+
+            // check if the next square and this square overlap
+            // if they do, increase the size of wide_rect
+            if rect.x == wide_rect.x + wide_rect.width {
+              wide_rect.width += TILE_SIZE
+            } else {
+              append(&wide_rects, wide_rect)
+              wide_rect = rect
+            }
+          }
+          append(&wide_rects, wide_rect)
+
+          /* 
+	   Right now the 
+           we can further improve this optimization by
+	   also grouping by the y coordinate.
+        */
+          slice.sort_by(wide_rects[:], proc(a, b: Rect) -> bool {
+            if a.x != b.x do return a.x < b.x
+            return a.y < b.y
+          })
+
+          // Do a similar rectangle add but going vertical.
+          // Instead of just comparing width and x values, match
+          // the y + height
+          big_rect := wide_rects[0]
+          for i in 1 ..< len(wide_rects) {
+            rect := wide_rects[i]
+
+            if rect.x == big_rect.x &&
+               rect.width == big_rect.width &&
+               big_rect.y + big_rect.height == rect.y {
+              big_rect.height += TILE_SIZE
+            } else {
+              append(&gs.colliders, big_rect)
+              big_rect = rect
+            }
+          }
+          append(&gs.colliders, big_rect)
+        }
       }
-      x += TILE_SIZE
     }
   }
 
-  num := len(&gs.solid_tiles)
-  assert(num > 0, "Failed to populate level tiles")
+  num := len(&gs.colliders)
+  assert(num > 0, "🚨 Failed to populate level tiles!")
 
   for !rl.WindowShouldClose() {
     dt := rl.GetFrameTime()
 
     player := entity_get(gs.player_id)
 
-
     player_update(&gs, dt)
     entity_update(&gs, dt)
-    physics_update(gs.entities[:], gs.solid_tiles[:], dt)
-    behavior_update(gs.entities[:], gs.solid_tiles[:], dt)
+    physics_update(gs.entities[:], gs.colliders[:], dt)
+    behavior_update(gs.entities[:], gs.colliders[:], dt)
 
     /*
-	   Determines the last "safe area" for the player to return to.
-	   It will set the position as a Vec2. It will only ever be on
-	   the ground. It checks 4 positions, the corner "legs" of the bounding
-	   box (the first two checks that check for ground, the point down), 
-	   the top corners of the bounding box, (check above).
+       Determines the last "safe area" for the player to return to.
+       It will set the position as a Vec2. It will only ever be on
+       the ground. It checks 4 positions, the corner "legs" of the bounding
+       box (the first two checks that check for ground, the point down), 
+       the top corners of the bounding box, (check above).
 
-	   If at least one raycast doesn't detect ground it will use the last
-	   position.
-	   If at least one raycast detects a hazard, it will use the last
-	   position.
-	 */
+       If at least one raycast doesn't detect ground it will use the last
+       position.
+       If at least one raycast detects a hazard, it will use the last
+       position.
+     */
     if .Grounded in player.flags {
       pos := Vec2{player.x, player.y}
       size := Vec2{player.width, player.height}
@@ -401,11 +525,11 @@ main :: proc() {
         _, hit_ground_left := raycast(
           pos + {0, size.y},
           DOWN * 2,
-          gs.solid_tiles[:],
+          gs.colliders[:],
         )
         if !hit_ground_left do break safety_check
 
-        _, hit_ground_right := raycast(pos + size, DOWN * 2, gs.solid_tiles[:])
+        _, hit_ground_right := raycast(pos + size, DOWN * 2, gs.colliders[:])
         if !hit_ground_right do break safety_check
 
         _, hit_entity_left := raycast(pos, LEFT * TILE_SIZE, targets[:])
@@ -427,9 +551,17 @@ main :: proc() {
     rl.BeginMode2D(gs.camera)
     rl.ClearBackground(BG_COLOR)
 
-    for rect in gs.solid_tiles {
-      rl.DrawRectangleRec(rect, rl.WHITE)
-      rl.DrawRectangleLinesEx(rect, 1, rl.GRAY)
+    for rect in gs.colliders {
+      // Draw as an orange debug lines to visualize each square
+      //rl.DrawRectangleRec(rect, rl.WHITE)
+      rl.DrawRectangleLinesEx(rect, 1, rl.ORANGE)
+      rl.DrawRectangleRec(rect, {255, 255, 255, 40})
+    }
+
+    for rect in gs.colliders {
+      // Draw as an orange debug lines to visualize each square
+      //rl.DrawRectangleRec(rect, rl.WHITE)
+      //rl.DrawRectangleLinesEx(rect, 1, {255, 255, 255, 40})
     }
 
     for &e in gs.entities {
