@@ -13,7 +13,7 @@ WINDOW_WIDTH :: 1280
 WINDOW_HEIGHT :: 720
 WINDOW_TITLE :: "MetroidVania-Slice"
 BG_COLOR :: rl.BLACK
-ZOOM: f32 : 1
+ZOOM: f32 : 2
 TILE_SIZE :: 16
 TARGET_FPS :: 60
 SPIKES_BREADTH :: 16
@@ -48,8 +48,16 @@ Game_State :: struct {
   camera:           rl.Camera2D,
   entities:         [dynamic]Entity,
   colliders:        [dynamic]Rect,
+  tiles:            [dynamic]Tile,
+  bg_tiles:         [dynamic]Tile,
   spikes:           map[Entity_Id]Direction,
   debug_shapes:     [dynamic]Debug_Shape,
+}
+
+Tile :: struct {
+  pos: Vec2,
+  src: Vec2,
+  f:   u8,
 }
 
 /*
@@ -110,8 +118,11 @@ Ldtk_Layer_Instance :: struct {
   entityInstances: []Ldtk_Entity,
 }
 
+
 Ldtk_Auto_Layer_Tile :: struct {
-  px: [2]f32,
+  src: Vec2,
+  px:  Vec2,
+  f:   u8,
 }
 
 Ldtk_Entity :: struct {
@@ -273,8 +284,10 @@ main :: proc() {
   gs = Game_State {
     camera = rl.Camera2D{zoom = ZOOM},
   }
+
   // Load textures
   player_tex := rl.LoadTexture("assets/textures/player_120x80.png")
+  ts_tex := rl.LoadTexture("assets/textures/tileset.png")
 
   player_anim_idle := Animation {
     size   = {120, 80},
@@ -478,6 +491,14 @@ main :: proc() {
             }
           }
           append(&gs.colliders, big_rect)
+
+          for at in layer.autoLayerTiles {
+            append(&gs.tiles, Tile{at.px, at.src, at.f})
+          }
+        case "Background":
+          for at in layer.autoLayerTiles {
+            append(&gs.bg_tiles, Tile{at.px, at.src, at.f})
+          }
         }
       }
     }
@@ -558,10 +579,39 @@ main :: proc() {
       rl.DrawRectangleRec(rect, {255, 255, 255, 40})
     }
 
-    for rect in gs.colliders {
-      // Draw as an orange debug lines to visualize each square
-      //rl.DrawRectangleRec(rect, rl.WHITE)
-      //rl.DrawRectangleLinesEx(rect, 1, {255, 255, 255, 40})
+    for tile in gs.bg_tiles {
+      w: f32 = TILE_SIZE
+      h: f32 = TILE_SIZE
+
+      if tile.f == 1 || tile.f == 3 {
+        w = -TILE_SIZE
+      } else if tile.f == 2 || tile.f == 3 {
+        h = -TILE_SIZE
+      }
+
+      rl.DrawTextureRec(
+        ts_tex,
+        {tile.src.x, tile.src.y, w, h},
+        tile.pos,
+        rl.WHITE,
+      )
+    }
+    for tile in gs.tiles {
+      w: f32 = TILE_SIZE
+      h: f32 = TILE_SIZE
+
+      if tile.f == 1 || tile.f == 3 {
+        w = -TILE_SIZE
+      } else if tile.f == 2 || tile.f == 3 {
+        h = -TILE_SIZE
+      }
+
+      rl.DrawTextureRec(
+        ts_tex,
+        {tile.src.x, tile.src.y, w, h},
+        tile.pos,
+        rl.WHITE,
+      )
     }
 
     for &e in gs.entities {
