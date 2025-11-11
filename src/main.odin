@@ -13,12 +13,16 @@ WINDOW_WIDTH :: 1280
 WINDOW_HEIGHT :: 720
 WINDOW_TITLE :: "MetroidVania-Slice"
 BG_COLOR :: rl.BLACK
-ZOOM: f32 : 2
+RENDER_WIDTH :: 640
+RENDER_HEIGHT :: 320
+ZOOM :: RENDER_WIDTH / RENDER_HEIGHT
 TILE_SIZE :: 16
 TARGET_FPS :: 60
 SPIKES_BREADTH :: 16
 SPIKES_DEPTH :: 12
 SPIKES_DIFF :: TILE_SIZE - SPIKES_DEPTH
+JUMP_TIME :: 0.2
+COYOTE_TIME :: 0.15
 
 // Type Aliases (reduce typing!) Note, they must come after rl definition
 Vec2 :: rl.Vector2
@@ -41,17 +45,20 @@ LEFT :: Vec2{-1, 0}
 PLAYER_SAFE_RESET_TIME :: 1
 
 Game_State :: struct {
-  player_id:        Entity_Id,
-  player_mv_state:  Player_Move_State,
-  safe_position:    Vec2,
-  safe_reset_timer: f32,
-  camera:           rl.Camera2D,
-  entities:         [dynamic]Entity,
-  colliders:        [dynamic]Rect,
-  tiles:            [dynamic]Tile,
-  bg_tiles:         [dynamic]Tile,
-  spikes:           map[Entity_Id]Direction,
-  debug_shapes:     [dynamic]Debug_Shape,
+  player_id:            Entity_Id,
+  player_mv_state:      Player_Move_State,
+  safe_position:        Vec2,
+  safe_reset_timer:     f32,
+  camera:               rl.Camera2D,
+  entities:             [dynamic]Entity,
+  colliders:            [dynamic]Rect,
+  tiles:                [dynamic]Tile,
+  bg_tiles:             [dynamic]Tile,
+  spikes:               map[Entity_Id]Direction,
+  debug_shapes:         [dynamic]Debug_Shape,
+  level_min, level_max: Vec2,
+  jump_timer:           f32,
+  coyote_timer:         f32,
 }
 
 Tile :: struct {
@@ -107,6 +114,8 @@ Ldtk_Data :: struct {
 Ldtk_Level :: struct {
   identifier:     string,
   layerInstances: []Ldtk_Layer_Instance,
+  worldX, worldY: f32,
+  pxWid, pxHei:   f32,
 }
 
 Ldtk_Layer_Instance :: struct {
@@ -383,6 +392,10 @@ main :: proc() {
 
     for level in ldtk_data.levels {
       if level.identifier != "Level_0" do continue
+
+      gs.level_min = {level.worldX, level.worldY}
+      gs.level_max = gs.level_min + {level.pxWid, level.pxHei}
+
       for layer in level.layerInstances {
         switch layer.__identifier {
         case "Entities":
@@ -516,6 +529,25 @@ main :: proc() {
     entity_update(&gs, dt)
     physics_update(gs.entities[:], gs.colliders[:], dt)
     behavior_update(gs.entities[:], gs.colliders[:], dt)
+
+    // camera logic
+    render_half_size := Vec2{RENDER_WIDTH, RENDER_HEIGHT} / 2
+    gs.camera.target = {player.x, player.y} - render_half_size
+
+    // only allow the camera to go the bounds of the level
+    if gs.camera.target.x < gs.level_min.x {
+      gs.camera.target.x = gs.level_min.x
+    }
+    if gs.camera.target.y < gs.level_min.y {
+      gs.camera.target.y = gs.level_min.y
+    }
+
+    if gs.camera.target.x + RENDER_WIDTH > gs.level_max.x {
+      gs.camera.target.x = gs.level_max.x - RENDER_WIDTH
+    }
+    if gs.camera.target.y + RENDER_HEIGHT > gs.level_max.x {
+      gs.camera.target.y = gs.level_max.y - RENDER_HEIGHT
+    }
 
     /*
        Determines the last "safe area" for the player to return to.
@@ -664,8 +696,6 @@ main :: proc() {
     // Draw the player after the level tiles!
     //rl.DrawRectangleLinesEx(player.collider, 1, rl.GREEN)
 
-    // Draw the current FPS
-    rl.DrawFPS(20, 20)
 
     for d in gs.debug_shapes {
       switch v in d {
@@ -682,6 +712,8 @@ main :: proc() {
       }
     }
     rl.EndMode2D()
+    // Draw the current FPS
+    rl.DrawFPS(20, 20)
     rl.EndDrawing()
 
     // clear the array of debug_shapes after drawing

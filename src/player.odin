@@ -1,5 +1,6 @@
 package main
 
+import "core:fmt"
 import rl "vendor:raylib"
 
 Player_Move_State :: enum {
@@ -16,6 +17,9 @@ Player_Move_State :: enum {
  */
 player_update :: proc(gs: ^Game_State, dt: f32) {
   player := entity_get(gs.player_id)
+
+  gs.jump_timer -= dt
+  gs.coyote_timer -= dt
 
   in_x: f32
   if (rl.IsKeyDown(.T)) do in_x += 1
@@ -48,6 +52,11 @@ player_update :: proc(gs: ^Game_State, dt: f32) {
       gs.player_mv_state = .Fall
       switch_animation(player, "fall")
     }
+    // variable jump
+    if rl.IsKeyReleased(.U) && Entity_Flags.Grounded not_in player.flags {
+      player.vel.y *= 0.5
+    }
+
     try_attack(gs, player)
   case .Fall:
     if .Grounded in player.flags {
@@ -72,7 +81,17 @@ try_run :: proc(gs: ^Game_State, p: ^Entity) {
 }
 
 try_jump :: proc(gs: ^Game_State, p: ^Entity) {
-  if rl.IsKeyPressed(.U) && .Grounded in p.flags {
+  if rl.IsKeyPressed(.U) {
+    gs.jump_timer = JUMP_TIME
+  }
+
+
+  if Entity_Flags.Grounded in p.flags {
+    gs.coyote_timer = COYOTE_TIME
+  }
+
+  if (Entity_Flags.Grounded in p.flags || gs.coyote_timer > 0) &&
+     gs.jump_timer > 0 {
     p.vel.y = -p.jump_force
     p.flags -= {.Grounded}
     gs.player_mv_state = .Jump
