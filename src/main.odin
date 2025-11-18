@@ -3,6 +3,7 @@ package main
 import "core:encoding/json"
 import "core:flags"
 import "core:fmt"
+import "core:log"
 import "core:os"
 import "core:slice"
 import "core:time"
@@ -14,8 +15,8 @@ WINDOW_HEIGHT :: 720
 WINDOW_TITLE :: "MetroidVania-Slice"
 BG_COLOR :: rl.BLACK
 RENDER_WIDTH :: 640
-RENDER_HEIGHT :: 320
-ZOOM :: RENDER_WIDTH / RENDER_HEIGHT
+RENDER_HEIGHT :: 360
+ZOOM :: WINDOW_WIDTH / RENDER_WIDTH
 TILE_SIZE :: 16
 TARGET_FPS :: 60
 SPIKES_BREADTH :: 16
@@ -135,9 +136,31 @@ Ldtk_Auto_Layer_Tile :: struct {
 }
 
 Ldtk_Entity :: struct {
+  __identifier:   string,
+  __worldX:       f32,
+  __worldY:       f32,
+  __tags:         []string,
+  width, height:  f32,
+  fieldInstances: []Ldtk_Field_Instance,
+}
+
+Ldtk_Field_Instance :: struct {
   __identifier: string,
-  __worldX:     f32,
-  __worldY:     f32,
+  __type:       string,
+  __value:      Ldtk_Layer_Instance_Value,
+}
+
+Ldtk_Entity_Ref :: struct {
+  entityIid: string,
+  layerIid:  string,
+  levelIid:  string,
+  worldIid:  string,
+}
+Ldtk_Layer_Instance_Value :: union {
+  Ldtk_Entity_Ref,
+  bool,
+  f32,
+  int,
 }
 
 gs: Game_State
@@ -287,6 +310,7 @@ load_level_simple :: proc(level_data: []byte, player_tex: ^rl.Texture2D) {
 }
 
 main :: proc() {
+  rl.SetConfigFlags({.VSYNC_HINT})
   rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
   rl.SetTargetFPS(TARGET_FPS)
 
@@ -384,8 +408,7 @@ main :: proc() {
     )
 
     if err != nil {
-      fmt.println("❌ Error after unmarshalling json, printing below ❌")
-      fmt.println(err)
+      log.panicf("[Error] Failed to parse JSON: %v", err)
     }
 
     fmt.println("✅ Successfully parsed LDTK json")
@@ -429,6 +452,34 @@ main :: proc() {
               p.animations["fall"] = player_anim_fall
               p.animations["attack"] = player_anim_attack
             case "Door":
+            }
+
+            if slice.contains(entity.__tags, "Enemy") {
+              enemy := Entity {
+                x           = entity.__worldX,
+                y           = entity.__worldY,
+                width       = entity.width,
+                height      = entity.height,
+                flags       = {.Debug_Draw},
+                debug_color = rl.RED,
+              }
+
+              for fi in entity.fieldInstances {
+                switch fi.__identifier {
+                case "Move_Speed":
+                  enemy.move_speed = fi.__value.(f32)
+                case "Health":
+                  enemy.health = int(fi.__value.(f32))
+                case "EB_Walk":
+                  if fi.__value.(bool) do enemy.behaviors += {.Walk}
+                case "EB_Flip_At_Wall":
+                  if fi.__value.(bool) do enemy.behaviors += {.Flip_At_Wall}
+                case "EB_Flip_At_Edge":
+                  if fi.__value.(bool) do enemy.behaviors += {.Flip_At_Edge}
+                }
+              }
+
+              entity_create(enemy)
             }
           }
         case "Collision":
@@ -534,7 +585,7 @@ main :: proc() {
     render_half_size := Vec2{RENDER_WIDTH, RENDER_HEIGHT} / 2
     gs.camera.target = {player.x, player.y} - render_half_size
 
-    // only allow the camera to go the bounds of the level
+    //only allow the camera to go the bounds of the level
     if gs.camera.target.x < gs.level_min.x {
       gs.camera.target.x = gs.level_min.x
     }
@@ -545,7 +596,7 @@ main :: proc() {
     if gs.camera.target.x + RENDER_WIDTH > gs.level_max.x {
       gs.camera.target.x = gs.level_max.x - RENDER_WIDTH
     }
-    if gs.camera.target.y + RENDER_HEIGHT > gs.level_max.x {
+    if gs.camera.target.y + RENDER_HEIGHT > gs.level_max.y {
       gs.camera.target.y = gs.level_max.y - RENDER_HEIGHT
     }
 

@@ -18,7 +18,7 @@ behavior_update :: proc(
     // send raycasts either left or right to check for a wall
     if .Flip_At_Wall in e.behaviors {
       if .Left in e.flags {
-        if hits, ok := raycast(
+        if _, ok := raycast(
           {e.x + e.width / 2, e.y + e.height / 2},
           {-e.width / 2 - COLLISION_EPSILON, 0},
           static_colliders,
@@ -27,7 +27,7 @@ behavior_update :: proc(
           e.vel.x = 0
         }
       } else {
-        if hits, ok := raycast(
+        if _, ok := raycast(
           {e.x + e.width / 2, e.y + e.height / 2},
           {e.width / 2 + COLLISION_EPSILON, 0},
           static_colliders,
@@ -42,14 +42,14 @@ behavior_update :: proc(
       if .Left in e.flags {
         start := Vec2{e.x, e.y + e.height / 2}
         magnitude := Vec2{0, e.height / 2 + COLLISION_EPSILON}
-        if hits, ok := raycast(start, magnitude, static_colliders); !ok {
+        if _, ok := raycast(start, magnitude, static_colliders); !ok {
           e.flags -= {.Left}
           e.vel.x = 0
         }
       } else {
         start := Vec2{e.x + e.width, e.y + e.height / 2}
         magnitude := Vec2{0, e.height / 2 + COLLISION_EPSILON}
-        if hits, ok := raycast(start, magnitude, static_colliders); !ok {
+        if _, ok := raycast(start, magnitude, static_colliders); !ok {
           e.flags += {.Left}
           e.vel.x = 0
         }
