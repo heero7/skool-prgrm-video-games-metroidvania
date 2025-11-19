@@ -26,6 +26,14 @@ Entity :: struct {
   current_anim_name:          string,
   current_anim_frame:         int,
   animation_timer:            f32,
+  hit_timer:                  f32,
+  hit_duration:               f32,
+  hit_response:               Entity_Hit_Response,
+}
+
+Entity_Hit_Response :: enum {
+  Stop,
+  Knockback,
 }
 
 Entity_Flags :: enum {
@@ -35,6 +43,7 @@ Entity_Flags :: enum {
   Debug_Draw,
   Left,
   Immortal,
+  Frozen,
 }
 
 Entity_Id :: distinct int
@@ -71,16 +80,33 @@ entity_get :: proc(id: Entity_Id) -> ^Entity {
 }
 
 entity_update :: proc(gs: ^Game_State, dt: f32) {
-  for &e, i in gs.entities {
+  for &e in gs.entities {
     if e.health == 0 && .Immortal not_in e.flags {
       e.flags += {.Dead}
+    }
+
+    if e.hit_timer > 0 {
+      e.hit_timer -= dt
+      if e.hit_timer <= 0 {
+        #partial switch e.hit_response {
+        // the reverse is in entity_hit, there we start this.
+        // this allows the entity to do what it was before (i.e walk)
+        case .Stop:
+          e.behaviors += {.Walk}
+          e.flags -= {.Frozen}
+        }
+      }
     }
 
     // Animation handling
     if len(e.animations) > 0 {
       anim := e.animations[e.current_anim_name]
 
-      e.animation_timer -= dt
+      // Only move the animation timer if we aren't frozen
+      if .Frozen not_in e.flags {
+        e.animation_timer -= dt
+      }
+
       if e.animation_timer <= 0 {
         e.current_anim_frame += 1
 
@@ -118,6 +144,21 @@ entity_damage :: proc(id: Entity_Id, amount: int) {
   e.health -= amount
   if e.health <= 0 {
     e.flags += {.Dead}
+  }
+}
+
+entity_hit :: proc(id: Entity_Id, force := Vec2{}) {
+  e := entity_get(id)
+
+  e.hit_timer = e.hit_duration
+
+  switch e.hit_response {
+  case .Stop:
+    e.behaviors -= {.Walk}
+    e.flags += {.Frozen}
+    e.vel = 0
+  case .Knockback:
+    e.vel += force
   }
 }
 

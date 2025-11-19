@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:math/linalg"
 import rl "vendor:raylib"
 
 Player_Move_State :: enum {
@@ -10,6 +11,7 @@ Player_Move_State :: enum {
   Jump,
   Fall,
   Attack,
+  Attack_Cooldown,
 }
 
 /*
@@ -26,6 +28,14 @@ player_update :: proc(gs: ^Game_State, dt: f32) {
   if (rl.IsKeyDown(.R)) do in_x -= 1
 
   player.vel.x = in_x * player.move_speed
+
+  if player.vel.x > 0 do player.flags -= {.Left}
+  if player.vel.x < 0 do player.flags += {.Left}
+
+  if gs.attack_recovery_timer > 0 {
+    gs.attack_recovery_timer -= dt
+    player.vel *= 0.5
+  }
 
   switch gs.player_mv_state {
   case .Uncontrollable:
@@ -65,10 +75,12 @@ player_update :: proc(gs: ^Game_State, dt: f32) {
     }
     try_attack(gs, player)
   case .Attack:
-    if .Grounded in player.flags {
-      player.vel.x = 0
+  case .Attack_Cooldown:
+    gs.attack_cooldown_timer -= dt
+    if gs.attack_cooldown_timer <= 0 {
+      gs.player_mv_state = .Idle
     }
-
+    try_run(gs, player)
   }
 }
 
@@ -103,12 +115,13 @@ try_attack :: proc(gs: ^Game_State, p: ^Entity) {
   if rl.IsKeyPressed(.I) {
     switch_animation(p, "attack")
     gs.player_mv_state = .Attack
+    gs.attack_cooldown_timer = ATTACK_COOLDOWN_DURATION
   }
 }
 
 player_on_finish_attack :: proc(gs: ^Game_State, p: ^Entity) {
   switch_animation(p, "idle")
-  gs.player_mv_state = .Fall
+  gs.player_mv_state = .Attack_Cooldown
 }
 
 /*
@@ -137,7 +150,19 @@ player_attack_callback :: proc(gs: ^Game_State, p: ^Entity) {
 
 
     if rl.CheckCollisionCircleRec(center, 25, e.collider) {
-      entity_damage(Entity_Id(i), 1)
+      entity_damage(id, 1)
+
+      a := rect_center(p.collider)
+      b := rect_center(e.collider)
+
+      dir := linalg.normalize0(b - a)
+
+      p.vel.x = -dir.x * 500
+      p.vel.y = -dir.y * 200 - 100
+
+      gs.attack_recovery_timer = ATTACK_RECOVERY_DURATION
+
+      entity_hit(id, dir * 500)
     }
   }
 }

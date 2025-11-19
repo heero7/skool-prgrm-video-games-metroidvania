@@ -1,3 +1,4 @@
+#+feature dynamic-literals
 package main
 
 import "core:encoding/json"
@@ -24,6 +25,8 @@ SPIKES_DEPTH :: 12
 SPIKES_DIFF :: TILE_SIZE - SPIKES_DEPTH
 JUMP_TIME :: 0.2
 COYOTE_TIME :: 0.15
+ATTACK_COOLDOWN_DURATION :: 0.3
+ATTACK_RECOVERY_DURATION :: 0.2
 
 // Type Aliases (reduce typing!) Note, they must come after rl definition
 Vec2 :: rl.Vector2
@@ -45,21 +48,39 @@ LEFT :: Vec2{-1, 0}
 
 PLAYER_SAFE_RESET_TIME :: 1
 
+Enemy_Def :: struct {
+  collider_size:       Vec2,
+  move_speed:          f32,
+  behaviors:           bit_set[Entity_Behaviors],
+  health:              int,
+  on_hit_damage:       int,
+  texture:             rl.Texture2D,
+  animations:          map[string]Animation,
+  initial_animation:   string,
+  hit_response:        Entity_Hit_Response,
+  hit_duration:        f32,
+  hit_knockback_force: f32,
+}
+
 Game_State :: struct {
-  player_id:            Entity_Id,
-  player_mv_state:      Player_Move_State,
-  safe_position:        Vec2,
-  safe_reset_timer:     f32,
-  camera:               rl.Camera2D,
-  entities:             [dynamic]Entity,
-  colliders:            [dynamic]Rect,
-  tiles:                [dynamic]Tile,
-  bg_tiles:             [dynamic]Tile,
-  spikes:               map[Entity_Id]Direction,
-  debug_shapes:         [dynamic]Debug_Shape,
-  level_min, level_max: Vec2,
-  jump_timer:           f32,
-  coyote_timer:         f32,
+  player_id:             Entity_Id,
+  player_mv_state:       Player_Move_State,
+  safe_position:         Vec2,
+  safe_reset_timer:      f32,
+  camera:                rl.Camera2D,
+  entities:              [dynamic]Entity,
+  colliders:             [dynamic]Rect,
+  tiles:                 [dynamic]Tile,
+  bg_tiles:              [dynamic]Tile,
+  spikes:                map[Entity_Id]Direction,
+  debug_shapes:          [dynamic]Debug_Shape,
+  level_min, level_max:  Vec2,
+  jump_timer:            f32,
+  coyote_timer:          f32,
+  enemy_definitions:     map[string]Enemy_Def,
+  debug_draw_enabled:    bool,
+  attack_cooldown_timer: f32,
+  attack_recovery_timer: f32,
 }
 
 Tile :: struct {
@@ -314,13 +335,44 @@ main :: proc() {
   rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
   rl.SetTargetFPS(TARGET_FPS)
 
+  args := os.args[1:]
+  fmt.printf("[GameINFO] Command Line: %v\n", args)
+  debug_draw := false
+  if len(args) > 0 && args[0] == "--debug" {
+    debug_draw = true
+  }
+
   gs = Game_State {
     camera = rl.Camera2D{zoom = ZOOM},
+    debug_draw_enabled = debug_draw,
   }
 
   // Load textures
   player_tex := rl.LoadTexture("assets/textures/player_120x80.png")
   ts_tex := rl.LoadTexture("assets/textures/tileset.png")
+
+  fmt.println("[Texture] Loading!")
+  gs.enemy_definitions["Walker"] = Enemy_Def {
+    collider_size = {36, 18},
+    move_speed = 35,
+    health = 3,
+    behaviors = {.Walk, .Flip_At_Wall, .Flip_At_Edge},
+    on_hit_damage = 1,
+    texture = rl.LoadTexture("assets/textures/opossum_36x28.png"),
+    animations = {
+      "walk" = Animation {
+        size = {36, 28},
+        offset = {0, 10},
+        start = 0,
+        end = 5,
+        time = 0.15,
+        flags = {.Loop},
+      },
+    },
+    initial_animation = "walk",
+    hit_response = .Stop,
+    hit_duration = 0.25,
+  }
 
   player_anim_idle := Animation {
     size   = {120, 80},
@@ -371,13 +423,16 @@ main :: proc() {
   }
 
   player_anim_attack := Animation {
-    size      = {120, 80},
-    offset    = {52, 42},
-    start     = 0,
-    end       = 3,
-    row       = 3,
-    time      = 0.15,
-    on_finish = player_on_finish_attack,
+    size         = {120, 80},
+    offset       = {52, 42},
+    start        = 0,
+    end          = 3,
+    row          = 3,
+    time         = 0.05,
+    on_finish    = player_on_finish_attack,
+    timed_events = {
+      {timer = 0.05, duration = 0.05, callback = player_attack_callback},
+    },
   }
 
 
@@ -387,6 +442,7 @@ main :: proc() {
     callback = player_attack_callback,
   }
   append(&player_anim_attack.timed_events, t)
+
 
   // Can create your own scope so that similarly used variables (like x & y)
   // are able to be used. Pretty neat feature.
@@ -455,28 +511,26 @@ main :: proc() {
             }
 
             if slice.contains(entity.__tags, "Enemy") {
-              enemy := Entity {
-                x           = entity.__worldX,
-                y           = entity.__worldY,
-                width       = entity.width,
-                height      = entity.height,
-                flags       = {.Debug_Draw},
-                debug_color = rl.RED,
-              }
+              def := &gs.enemy_definitions[entity.__identifier]
 
-              for fi in entity.fieldInstances {
-                switch fi.__identifier {
-                case "Move_Speed":
-                  enemy.move_speed = fi.__value.(f32)
-                case "Health":
-                  enemy.health = int(fi.__value.(f32))
-                case "EB_Walk":
-                  if fi.__value.(bool) do enemy.behaviors += {.Walk}
-                case "EB_Flip_At_Wall":
-                  if fi.__value.(bool) do enemy.behaviors += {.Flip_At_Wall}
-                case "EB_Flip_At_Edge":
-                  if fi.__value.(bool) do enemy.behaviors += {.Flip_At_Edge}
-                }
+              enemy := Entity {
+                collider = {
+                  x = entity.__worldX,
+                  y = entity.__worldY,
+                  width = def.collider_size.x,
+                  height = def.collider_size.y,
+                },
+                move_speed = def.move_speed,
+                behaviors = def.behaviors,
+                health = def.health,
+                on_hit_damage = def.on_hit_damage,
+                texture = &def.texture,
+                animations = def.animations,
+                current_anim_name = def.initial_animation,
+                hit_response = def.hit_response,
+                hit_duration = def.hit_duration,
+                debug_color = rl.RED,
+                flags = {.Debug_Draw},
               }
 
               entity_create(enemy)
@@ -698,6 +752,8 @@ main :: proc() {
     }
 
     for &e in gs.entities {
+      if .Dead in e.flags do continue
+
       if e.texture != nil {
         e.animation_timer -= dt
 
@@ -716,50 +772,48 @@ main :: proc() {
         rl.DrawTextureRec(e.texture^, src, {e.x, e.y} - anim.offset, rl.WHITE)
       }
 
-      if .Debug_Draw in e.flags && .Dead not_in e.flags {
-        //rl.DrawRectangleLinesEx(e.collider, 1, e.debug_color)
-        // i think we can do both
+      if gs.debug_draw_enabled {
+        if .Debug_Draw in e.flags && .Dead not_in e.flags {
+          //rl.DrawRectangleLinesEx(e.collider, 1, e.debug_color)
+          // i think we can do both
+          debug_draw_rect(
+            {e.collider.x, e.collider.y},
+            {e.width, e.height},
+            1,
+            e.debug_color,
+          )
+        }
+
+        // Draw the safe position
         debug_draw_rect(
-          {e.collider.x, e.collider.y},
-          {e.width, e.height},
+          gs.safe_position,
+          {player.width, player.height},
           1,
-          e.debug_color,
+          rl.BLUE,
         )
-      }
-    }
 
-    // Draw the safe position
-    debug_draw_rect(
-      gs.safe_position,
-      {player.width, player.height},
-      1,
-      rl.BLUE,
-    )
-
-    // Draw the attack area
-    debug_draw_circle(
-      {player.collider.x, player.collider.y} +
-      {.Left in player.flags ? -30 + player.collider.width : 30, 20},
-      25,
-      rl.GREEN,
-    )
-
-    // Draw the player after the level tiles!
-    //rl.DrawRectangleLinesEx(player.collider, 1, rl.GREEN)
-
-
-    for d in gs.debug_shapes {
-      switch v in d {
-      case Debug_Line:
-        rl.DrawLineEx(v.start, v.end, v.thickness, v.color)
-      case Debug_Rect:
-        rl.DrawRectangleLinesEx(
-          Rect{v.pos.x, v.pos.y, v.size.x, v.size.y},
-          v.thickness,
-          v.color,
+        // Draw the attack area
+        debug_draw_circle(
+          {player.collider.x, player.collider.y} +
+          {.Left in player.flags ? -30 + player.collider.width : 30, 20},
+          25,
+          rl.GREEN,
         )
-      case Debug_Circle:
-        rl.DrawCircleLinesV(v.pos, v.radius, v.color)
+
+        for d in gs.debug_shapes {
+          switch v in d {
+          case Debug_Line:
+            rl.DrawLineEx(v.start, v.end, v.thickness, v.color)
+          case Debug_Rect:
+            rl.DrawRectangleLinesEx(
+              Rect{v.pos.x, v.pos.y, v.size.x, v.size.y},
+              v.thickness,
+              v.color,
+            )
+          case Debug_Circle:
+            rl.DrawCircleLinesV(v.pos, v.radius, v.color)
+          }
+        }
       }
     }
     rl.EndMode2D()
