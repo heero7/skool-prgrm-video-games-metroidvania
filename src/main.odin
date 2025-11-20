@@ -14,7 +14,7 @@ import rl "vendor:raylib"
 WINDOW_WIDTH :: 1280
 WINDOW_HEIGHT :: 720
 WINDOW_TITLE :: "MetroidVania-Slice"
-BG_COLOR :: rl.BLACK
+BG_COLOR :: rl.Color{50, 44, 67, 255}
 RENDER_WIDTH :: 640
 RENDER_HEIGHT :: 360
 ZOOM :: WINDOW_WIDTH / RENDER_WIDTH
@@ -72,7 +72,8 @@ Game_State :: struct {
   colliders:             [dynamic]Rect,
   tiles:                 [dynamic]Tile,
   bg_tiles:              [dynamic]Tile,
-  spikes:                map[Entity_Id]Direction,
+  spikes:                [dynamic]Spike,
+  falling_logs:          [dynamic]Falling_Log,
   debug_shapes:          [dynamic]Debug_Shape,
   level_min, level_max:  Vec2,
   jump_timer:            f32,
@@ -81,6 +82,21 @@ Game_State :: struct {
   debug_draw_enabled:    bool,
   attack_cooldown_timer: f32,
   attack_recovery_timer: f32,
+}
+
+Spike :: struct {
+  collider: Rect,
+  facing:   Direction,
+}
+
+Falling_Log :: struct {
+  collider:    Rect,
+  rope_height: f32,
+  state:       enum {
+    Default,
+    Falling,
+    Settled,
+  },
 }
 
 Tile :: struct {
@@ -168,7 +184,15 @@ Ldtk_Entity :: struct {
 Ldtk_Field_Instance :: struct {
   __identifier: string,
   __type:       string,
-  __value:      Ldtk_Layer_Instance_Value,
+  __value:      Ldtk_Field_Instance_Value,
+}
+
+Ldtk_Field_Instance_Value :: union {
+  Ldtk_Entity_Ref,
+  bool,
+  f32,
+  int,
+  string,
 }
 
 Ldtk_Entity_Ref :: struct {
@@ -177,158 +201,9 @@ Ldtk_Entity_Ref :: struct {
   levelIid:  string,
   worldIid:  string,
 }
-Ldtk_Layer_Instance_Value :: union {
-  Ldtk_Entity_Ref,
-  bool,
-  f32,
-  int,
-}
+
 
 gs: Game_State
-
-spike_on_enter :: proc(self_id, other_id: Entity_Id) {
-  me := entity_get(self_id)
-  them := entity_get(other_id)
-
-  if other_id == gs.player_id {
-    them.x = gs.safe_position.x
-    them.y = gs.safe_position.y
-
-    them.vel = 0
-
-    gs.safe_reset_timer = PLAYER_SAFE_RESET_TIME
-    gs.player_mv_state = .Uncontrollable
-    switch_animation(them, "idle")
-  }
-
-  dir := gs.spikes[self_id]
-
-  switch dir {
-  case .Up:
-    if them.vel.y > 0 {
-      fmt.println("spikes pointing up")
-    }
-  case .Right:
-    if them.vel.x < 0 {
-      fmt.println("spikes pointing right")
-    }
-  case .Down:
-    if them.vel.y < 0 {
-      fmt.println("spikes pointing down")
-    }
-  case .Left:
-    if them.vel.x > 0 {
-      fmt.println("spikes pointing left")
-    }
-  }
-}
-
-/*
-   Not yet fixed, but it is the old way of loading level data using
-   a simple text file.❗️What is not fixed is how to load the player
-   animations.
- */
-load_level_simple :: proc(level_data: []byte, player_tex: ^rl.Texture2D) {
-  x, y: f32
-  for v in level_data {
-    switch v {
-    case 'e':
-      en := entity_create(
-        Entity {
-          collider = Rect{x, y, TILE_SIZE, TILE_SIZE},
-          move_speed = 50,
-          flags = {.Debug_Draw},
-          behaviors = {.Walk, .Flip_At_Wall, .Flip_At_Edge},
-          health = 2,
-          max_health = 2,
-          on_hit_damage = 1,
-          debug_color = rl.RED,
-        },
-      )
-    case '\n':
-      y += TILE_SIZE
-      x = 0
-      continue
-    case '#':
-    //append(&gs.solid_tiles, Rect{x, y, TILE_SIZE, TILE_SIZE})
-
-    case 'P':
-      gs.player_id = entity_create(
-        {
-          x = x,
-          y = y,
-          width = 16,
-          height = 38,
-          flags = {.Debug_Draw},
-          debug_color = rl.GREEN,
-          jump_force = 650,
-          move_speed = 280,
-          on_enter = player_on_enter,
-          health = 5,
-          max_health = 5,
-          texture = player_tex,
-          current_anim_name = "idle",
-        },
-      )
-
-    // load the player to load the animations
-
-    //p := entity_get(gs.player_id)
-    //p.animations["idle"] = player_anim_idle
-    //p.animations["run"] = player_anim_run
-    //p.animations["jump"] = player_anim_jump
-    //p.animations["jump_fall_inbetween"] = player_anim_jump_fall_inbetween
-    //p.animations["fall"] = player_anim_fall
-    //p.animations["attack"] = player_anim_attack
-    case '^':
-      id := entity_create(
-        Entity {
-          collider = Rect{x, y + SPIKES_DIFF, SPIKES_BREADTH, SPIKES_DEPTH},
-          on_enter = spike_on_enter,
-          on_hit_damage = 1,
-          flags = {.Kinematic, .Debug_Draw, .Immortal},
-          debug_color = rl.YELLOW,
-        },
-      )
-      gs.spikes[id] = .Up
-    case '>':
-      id := entity_create(
-        Entity {
-          collider = Rect{x, y, SPIKES_DEPTH, SPIKES_BREADTH},
-          on_enter = spike_on_enter,
-          on_hit_damage = 1,
-          flags = {.Kinematic, .Debug_Draw, .Immortal},
-          debug_color = rl.YELLOW,
-        },
-      )
-      gs.spikes[id] = .Right
-    case '<':
-      id := entity_create(
-        Entity {
-          collider = Rect{x + SPIKES_DIFF, y, SPIKES_DEPTH, SPIKES_BREADTH},
-          on_enter = spike_on_enter,
-          on_hit_damage = 1,
-          flags = {.Kinematic, .Debug_Draw, .Immortal},
-          debug_color = rl.YELLOW,
-        },
-      )
-      gs.spikes[id] = .Left
-    case 'v':
-      id := entity_create(
-        Entity {
-          collider = Rect{x, y, SPIKES_BREADTH, SPIKES_DEPTH},
-          on_enter = spike_on_enter,
-          on_hit_damage = 1,
-          flags = {.Kinematic, .Debug_Draw, .Immortal},
-          debug_color = rl.YELLOW,
-        },
-      )
-      gs.spikes[id] = .Down
-
-    }
-    x += TILE_SIZE
-  }
-}
 
 main :: proc() {
   rl.SetConfigFlags({.VSYNC_HINT})
@@ -499,6 +374,7 @@ main :: proc() {
                   current_anim_name = "idle",
                 },
               )
+              gs.safe_position = {px, py}
               p := entity_get(gs.player_id)
               p.animations["idle"] = player_anim_idle
               p.animations["run"] = player_anim_run
@@ -508,6 +384,46 @@ main :: proc() {
               p.animations["fall"] = player_anim_fall
               p.animations["attack"] = player_anim_attack
             case "Door":
+            case "Spikes":
+              facing := Direction.Right
+              px, py := entity.__worldX, entity.__worldY
+              w, h := entity.width, entity.height
+
+              switch entity.fieldInstances[0].__value {
+              case "Up":
+                facing = .Up
+                py += SPIKES_DIFF
+                h = SPIKES_DEPTH
+              case "Right":
+                facing = .Right
+                w = SPIKES_DEPTH
+              case "Down":
+                facing = .Down
+                h = SPIKES_DEPTH
+              case "Left":
+                facing = .Left
+                w = SPIKES_DEPTH
+                px += SPIKES_DIFF
+              }
+              append(
+                &gs.spikes,
+                Spike {
+                  collider = {x = px, y = py, width = w, height = h},
+                  facing = facing,
+                },
+              )
+            case "Falling_Log":
+              append(
+                &gs.falling_logs,
+                Falling_Log {
+                  collider = {
+                    x = entity.__worldX,
+                    y = entity.__worldY,
+                    width = entity.width,
+                    height = entity.height,
+                  },
+                },
+              )
             }
 
             if slice.contains(entity.__tags, "Enemy") {
@@ -615,8 +531,40 @@ main :: proc() {
           }
         case "Background":
           for at in layer.autoLayerTiles {
-            append(&gs.bg_tiles, Tile{at.px, at.src, at.f})
+            is_on_spike := false
+
+            for spike in gs.spikes {
+              if rl.CheckCollisionRecs(
+                spike.collider,
+                {at.px.x, at.px.y, 16, 16},
+              ) {
+                is_on_spike = true
+                break
+              }
+            }
+
+            if !is_on_spike {
+              append(&gs.bg_tiles, Tile{at.px, at.src, at.f})
+            }
           }
+        }
+      }
+
+      for &falling_log in gs.falling_logs {
+        center := rect_center(falling_log.collider)
+
+        hits, hits_ok := raycast(
+          center,
+          UP * (gs.level_max.y - gs.level_min.y),
+          gs.colliders[:],
+        )
+
+        if hits_ok {
+          slice.sort_by(hits, proc(a, b: Vec2) -> bool {
+            return a.y > b.y || a.y == b.y
+          })
+          falling_log.rope_height =
+            center.y - hits[0].y - falling_log.collider.height / 2
         }
       }
     }
@@ -626,14 +574,39 @@ main :: proc() {
   assert(num > 0, "🚨 Failed to populate level tiles!")
 
   for !rl.WindowShouldClose() {
+    if rl.IsKeyPressed(.TAB) {
+      gs.debug_draw_enabled = !gs.debug_draw_enabled
+    }
     dt := rl.GetFrameTime()
 
     player := entity_get(gs.player_id)
 
     player_update(&gs, dt)
     entity_update(&gs, dt)
-    physics_update(gs.entities[:], gs.colliders[:], dt)
+    physics_update(gs.entities[:], gs.colliders[:], gs.falling_logs[:], dt)
     behavior_update(gs.entities[:], gs.colliders[:], dt)
+
+    for &falling_log in gs.falling_logs {
+      if falling_log.state == .Falling {
+        falling_log.collider.y += dt * 600
+
+        for col in gs.colliders {
+          if rl.CheckCollisionRecs(col, falling_log.collider) {
+            if col.y <= falling_log.collider.y + falling_log.collider.height {
+              falling_log.state = .Settled
+              append(&gs.colliders, falling_log.collider)
+              break
+            }
+          }
+        }
+
+        for e, i in gs.entities {
+          if rl.CheckCollisionRecs(e.collider, falling_log.collider) {
+            entity_damage(Entity_Id(i), 999)
+          }
+        }
+      }
+    }
 
     // camera logic
     render_half_size := Vec2{RENDER_WIDTH, RENDER_HEIGHT} / 2
@@ -680,6 +653,11 @@ main :: proc() {
       }
 
       safety_check: {
+        for spike in gs.spikes {
+          if rl.CheckCollisionRecs(spike.collider, player.collider) {
+            break safety_check
+          }
+        }
         _, hit_ground_left := raycast(
           pos + {0, size.y},
           DOWN * 2,
@@ -770,6 +748,28 @@ main :: proc() {
         }
 
         rl.DrawTextureRec(e.texture^, src, {e.x, e.y} - anim.offset, rl.WHITE)
+      }
+
+      for spike in gs.spikes {
+        rl.DrawRectangleLinesEx(spike.collider, 1, rl.YELLOW)
+      }
+
+      for falling_log in gs.falling_logs {
+        center := rect_center(falling_log.collider)
+
+        if falling_log.state == .Default {
+          rope_pos := Vec2 {
+            center.x,
+            center.y - falling_log.collider.height / 2,
+          }
+          rl.DrawLineEx(
+            rope_pos,
+            rope_pos - {0, falling_log.rope_height},
+            1,
+            rl.BROWN,
+          )
+        }
+        rl.DrawRectangleLinesEx(falling_log.collider, 4, rl.BROWN)
       }
 
       if gs.debug_draw_enabled {

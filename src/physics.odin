@@ -69,7 +69,12 @@ raycast :: proc(
   return hit_store[:], len(hit_store) > 0
 }
 
-physics_update :: proc(entities: []Entity, static_colliders: []Rect, dt: f32) {
+physics_update :: proc(
+  entities: []Entity,
+  static_colliders: []Rect,
+  logs: []Falling_Log,
+  dt: f32,
+) {
   for &entity, e_id in entities {
     entity_id := Entity_Id(e_id)
 
@@ -100,30 +105,28 @@ physics_update :: proc(entities: []Entity, static_colliders: []Rect, dt: f32) {
           if rl.CheckCollisionRecs(entity.collider, static) {
             // The if is handling when the collision is above or below the static collider
             // Either way, no matter what we will set the velocity to 0
-            if entity.vel.y > 0 {
-              entity.flags += {.Grounded}
-              entity.y = static.y - entity.height // todo(math): how can we draw this?
-              // ^^ I  think this is because we need to find the distance AWAY from the
-              // entity to start drawing.
-            } else {
-              entity.y = static.y + static.height
-            }
-
-            // No matter what set the velocity to zero and move on.
-            entity.vel.y = 0
+            resolve_entity_vs_static_y(&entity, static)
             break
+          }
+        }
+
+        for log in logs {
+          if rl.CheckCollisionRecs(entity.collider, log.collider) {
+            resolve_entity_vs_static_y(&entity, log.collider)
           }
         }
 
         entity.x += entity.vel.x * step
         for static in static_colliders {
           if rl.CheckCollisionRecs(entity.collider, static) {
-            if entity.vel.x > 0 {
-              entity.x = static.x - entity.width
-            } else {
-              entity.x = static.x + static.width
-            }
-            entity.vel.x = 0
+            resolve_entity_vs_static_x(&entity, static)
+            break
+          }
+        }
+
+        for log in logs {
+          if rl.CheckCollisionRecs(entity.collider, log.collider) {
+            resolve_entity_vs_static_x(&entity, log.collider)
             break
           }
         }
@@ -165,4 +168,27 @@ physics_update :: proc(entities: []Entity, static_colliders: []Rect, dt: f32) {
       }
     }
   }
+}
+
+resolve_entity_vs_static_y :: proc(entity: ^Entity, static: Rect) {
+  if entity.vel.y > 0 {
+    entity.flags += {.Grounded}
+    entity.y = static.y - entity.height // todo(math): how can we draw this?
+    // ^^ I  think this is because we need to find the distance AWAY from the
+    // entity to start drawing.
+  } else {
+    entity.y = static.y + static.height
+  }
+
+  // No matter what set the velocity to zero and move on.
+  entity.vel.y = 0
+}
+
+resolve_entity_vs_static_x :: proc(entity: ^Entity, static: Rect) {
+  if entity.vel.x > 0 {
+    entity.x = static.x - entity.width
+  } else {
+    entity.x = static.x + static.width
+  }
+  entity.vel.x = 0
 }

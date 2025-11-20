@@ -82,6 +82,17 @@ player_update :: proc(gs: ^Game_State, dt: f32) {
     }
     try_run(gs, player)
   }
+
+  for spike in gs.spikes {
+    if rl.CheckCollisionRecs(spike.collider, player.collider) {
+      player.x = gs.safe_position.x
+      player.y = gs.safe_position.y
+      player.vel = 0
+      gs.safe_reset_timer = PLAYER_SAFE_RESET_TIME
+      gs.player_mv_state = .Uncontrollable
+      switch_animation(player, "idle")
+    }
+  }
 }
 
 
@@ -163,6 +174,27 @@ player_attack_callback :: proc(gs: ^Game_State, p: ^Entity) {
       gs.attack_recovery_timer = ATTACK_RECOVERY_DURATION
 
       entity_hit(id, dir * 500)
+    }
+  }
+
+  for &falling_log in gs.falling_logs {
+    if falling_log.state != .Default do continue
+
+    log_center := rect_center(falling_log.collider)
+    rope_pos := Vec2 {
+      log_center.x,
+      log_center.y - falling_log.collider.height / 2,
+    }
+
+    rect := Rect {
+      rope_pos.x - 1,
+      rope_pos.y - falling_log.rope_height,
+      2,
+      falling_log.rope_height - TILE_SIZE,
+    }
+
+    if rl.CheckCollisionCircleRec(center, 25, rect) {
+      falling_log.state = .Falling
     }
   }
 }
