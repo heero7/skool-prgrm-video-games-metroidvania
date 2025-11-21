@@ -73,7 +73,8 @@ entity_create :: proc(entity: Entity) -> Entity_Id {
 }
 
 entity_get :: proc(id: Entity_Id) -> ^Entity {
-  if int(id) > len(gs.entities) {
+  count := len(gs.entities)
+  if count == 0 || int(id) > count {
     return nil
   }
   return &gs.entities[id]

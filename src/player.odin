@@ -93,6 +93,43 @@ player_update :: proc(gs: ^Game_State, dt: f32) {
       switch_animation(player, "idle")
     }
   }
+
+  for door in gs.doors {
+    if rl.CheckCollisionRecs(player.collider, door.rect) {
+      if level_def, ok := gs.level_definitions[door.to_level]; ok {
+        for o_door in level_def.doors {
+          if o_door.iid == door.to_iid {
+            dir := linalg.normalize0(
+              Vec2{o_door.rect.x, o_door.rect.y} -
+              Vec2{door.rect.x, door.rect.y},
+            )
+
+
+            player_spawn := Vec2{o_door.rect.x, o_door.rect.y}
+
+            if dir.x > 0 {
+              delta := (o_door.rect.width + player.collider.width + 8)
+              player_spawn.x += delta
+            } else if dir.x < 0 {
+              delta := (o_door.rect.width + player.collider.width + 8)
+              player_spawn.x -= delta
+            }
+            if dir.x != 0 {
+              v := o_door.rect.height - player.collider.height
+              player_spawn.y += v
+            }
+
+
+            level_def.player_spawn = player_spawn
+          }
+        }
+
+        // update the level definitions and load!
+        gs.level_definitions[level_def.iid] = level_def
+        level_load(gs, &gs.level_definitions[door.to_level])
+      }
+    }
+  }
 }
 
 
