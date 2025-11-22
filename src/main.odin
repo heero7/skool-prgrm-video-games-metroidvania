@@ -5,6 +5,7 @@ import "core:encoding/json"
 import "core:flags"
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:os"
 import "core:slice"
 import "core:strings"
@@ -65,12 +66,15 @@ Enemy_Def :: struct {
 }
 
 Game_State :: struct {
+  camera:                rl.Camera2D,
+  ui_camera:             rl.Camera2D,
   player_id:             Entity_Id,
   player_texture:        rl.Texture,
   player_mv_state:       Player_Move_State,
   safe_position:         Vec2,
   safe_reset_timer:      f32,
-  camera:                rl.Camera2D,
+  // ideally, don't draw from multiple textures
+  hearts_texture:        rl.Texture,
   tileset_texture:       rl.Texture,
   level_definitions:     map[string]Level,
   level:                 ^Level,
@@ -592,8 +596,8 @@ spawn_player :: proc(gs: ^Game_State) {
       jump_force = 650,
       move_speed = 280,
       on_enter = player_on_enter,
-      health = 5,
-      max_health = 5,
+      health = 6,
+      max_health = 6,
       texture = &gs.player_texture,
       current_anim_name = "idle",
     },
@@ -636,27 +640,27 @@ main :: proc() {
   gs.camera = rl.Camera2D {
     zoom = ZOOM,
   }
+  gs.ui_camera = rl.Camera2D {
+    zoom = ZOOM,
+  }
   gs.debug_draw_enabled = debug_draw
 
   // Load textures
   gs.player_texture = rl.LoadTexture("assets/textures/player_120x80.png")
   gs.tileset_texture = rl.LoadTexture("assets/textures/tileset.png")
+  gs.hearts_texture = rl.LoadTexture("assets/textures/health_hearts.png")
 
   // Load sounds
   gs.sword_swoosh_snd = rl.LoadSound("assets/sounds/player_sword_swing.wav")
   gs.sword_swoosh_snd_2 = rl.LoadSound(
     "assets/sounds/player_sword_swing_2.wav",
   )
-  gs.sword_hit_soft_snd = rl.LoadSound(
-    "assets/sounds/player_sword_hit_soft.wav",
-  )
-  gs.sword_hit_med_snd = rl.LoadSound("assets/sounds/player_sword_medium.wav")
-  gs.sword_hit_stone_snd = rl.LoadSound("assets/sounds/player_sword_stone.wav")
+  gs.sword_hit_soft_snd = rl.LoadSound("assets/sounds/sword_hit_soft.wav")
+  gs.sword_hit_med_snd = rl.LoadSound("assets/sounds/sword_hit_medium.wav")
+  gs.sword_hit_stone_snd = rl.LoadSound("assets/sounds/sword_hit_stone.wav")
   gs.player_jump_snd = rl.LoadSound("assets/sounds/player_jump.wav")
 
-  fmt.println("[Game] Loading bgm..")
   bgm := rl.LoadMusicStream("assets/music/bgm.ogg")
-  fmt.println("[Game] End Loading bgm..")
   rl.PlayMusicStream(bgm)
 
   gs.enemy_definitions["Walker"] = Enemy_Def {
@@ -965,8 +969,59 @@ main :: proc() {
     }
 
     rl.EndMode2D()
+
+    // Well we can't draw this AND the health UI
     // Draw the current FPS
-    rl.DrawFPS(20, 20)
+    //rl.DrawFPS(20, 20)
+
+    rl.BeginMode2D(gs.ui_camera)
+    // Draw Player Health
+    {
+      full_hearts := player.health / 2
+      has_half_heart := f32(player.health) / 2 > f32(full_hearts)
+      total_hearts := math.ceil(f32(player.max_health) / 2)
+
+      acct_for_half := 0
+      if has_half_heart {
+        acct_for_half = 1
+      }
+
+      empty_hearts := int(total_hearts) - full_hearts - acct_for_half
+
+      x := f32(16)
+
+      for _ in 0 ..< full_hearts {
+        rl.DrawTextureRec(
+          gs.hearts_texture,
+          {32, 32, 16, 16},
+          {x, 16},
+          rl.WHITE,
+        )
+        x += 16
+      }
+
+      if has_half_heart {
+        rl.DrawTextureRec(
+          gs.hearts_texture,
+          {16, 32, 16, 16},
+          {x, 16},
+          rl.WHITE,
+        )
+        x += 16
+      }
+
+      for _ in 0 ..< empty_hearts {
+        rl.DrawTextureRec(
+          gs.hearts_texture,
+          {0, 16, 16, 16},
+          {x, 16},
+          rl.WHITE,
+        )
+        x += 16
+      }
+    }
+    rl.EndMode2D()
+
     rl.EndDrawing()
 
     // clear the array of debug_shapes after drawing
