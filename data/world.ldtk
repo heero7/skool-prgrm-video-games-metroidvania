@@ -1387,6 +1387,30 @@
 							}] }],
 							"__worldX": 816,
 							"__worldY": 112
+						},
+						{
+							"__identifier": "Door",
+							"__grid": [52,17],
+							"__pivot": [0,0],
+							"__tags": [],
+							"__tile": null,
+							"__smartColor": "#39CBE1",
+							"iid": "0e06a010-ac70-11f0-9070-ab5e9d360f73",
+							"width": 16,
+							"height": 80,
+							"defUid": 38,
+							"px": [832,272],
+							"fieldInstances": [{ "__identifier": "Entity_ref", "__type": "EntityRef", "__value": {
+								"entityIid": "11337600-ac70-11f0-9070-a9c791f04cac",
+								"layerIid": "20718361-ac70-11f0-9a60-af8319cdfbdb",
+								"levelIid": "20718360-ac70-11f0-9a60-b395fbf3278d",
+								"worldIid": "95ec56c0-ac70-11f0-aba9-cdf0d736f81a"
+							}, "__tile": null, "defUid": 39, "realEditorValues": [{
+								"id": "V_String",
+								"params": ["11337600-ac70-11f0-9070-a9c791f04cac"]
+							}] }],
+							"__worldX": 832,
+							"__worldY": 272
 						}
 					]
 				},
@@ -3522,6 +3546,30 @@
 							}] }],
 							"__worldX": 848,
 							"__worldY": 112
+						},
+						{
+							"__identifier": "Door",
+							"__grid": [0,17],
+							"__pivot": [0,0],
+							"__tags": [],
+							"__tile": null,
+							"__smartColor": "#39CBE1",
+							"iid": "11337600-ac70-11f0-9070-a9c791f04cac",
+							"width": 16,
+							"height": 80,
+							"defUid": 38,
+							"px": [0,272],
+							"fieldInstances": [{ "__identifier": "Entity_ref", "__type": "EntityRef", "__value": {
+								"entityIid": "0e06a010-ac70-11f0-9070-ab5e9d360f73",
+								"layerIid": "607bd1f0-ac70-11f0-9a60-579a9cc641fb",
+								"levelIid": "95ec7dd0-ac70-11f0-aba9-8934640bd777",
+								"worldIid": "95ec56c0-ac70-11f0-aba9-cdf0d736f81a"
+							}, "__tile": null, "defUid": 39, "realEditorValues": [{
+								"id": "V_String",
+								"params": ["0e06a010-ac70-11f0-9070-ab5e9d360f73"]
+							}] }],
+							"__worldX": 848,
+							"__worldY": 272
 						}
 					]
 				},

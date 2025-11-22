@@ -32,6 +32,7 @@ ATTACK_RECOVERY_DURATION :: 0.2
 // Type Aliases (reduce typing!) Note, they must come after rl definition
 Vec2 :: rl.Vector2
 Rect :: rl.Rectangle
+Snd :: rl.Sound
 //Color :: rl.Color
 
 Direction :: enum {
@@ -87,6 +88,12 @@ Game_State :: struct {
   debug_draw_enabled:    bool,
   attack_cooldown_timer: f32,
   attack_recovery_timer: f32,
+  sword_swoosh_snd:      Snd,
+  sword_swoosh_snd_2:    Snd,
+  sword_hit_soft_snd:    Snd,
+  sword_hit_med_snd:     Snd,
+  sword_hit_stone_snd:   Snd,
+  player_jump_snd:       Snd,
 }
 
 Spike :: struct {
@@ -570,6 +577,7 @@ spawn_player :: proc(gs: ^Game_State) {
     time         = 0.05,
     on_finish    = player_on_finish_attack,
     timed_events = {
+      {timer = 0.01, duration = 0.01, callback = player_attack_sfx},
       {timer = 0.05, duration = 0.05, callback = player_attack_callback},
     },
   }
@@ -613,8 +621,9 @@ spawn_player :: proc(gs: ^Game_State) {
 
 main :: proc() {
   rl.SetConfigFlags({.VSYNC_HINT})
-  rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
   rl.SetTargetFPS(TARGET_FPS)
+  rl.InitAudioDevice()
+  rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
 
   args := os.args[1:]
   fmt.printf("[GameINFO] Command Line: %v\n", args)
@@ -632,6 +641,23 @@ main :: proc() {
   // Load textures
   gs.player_texture = rl.LoadTexture("assets/textures/player_120x80.png")
   gs.tileset_texture = rl.LoadTexture("assets/textures/tileset.png")
+
+  // Load sounds
+  gs.sword_swoosh_snd = rl.LoadSound("assets/sounds/player_sword_swing.wav")
+  gs.sword_swoosh_snd_2 = rl.LoadSound(
+    "assets/sounds/player_sword_swing_2.wav",
+  )
+  gs.sword_hit_soft_snd = rl.LoadSound(
+    "assets/sounds/player_sword_hit_soft.wav",
+  )
+  gs.sword_hit_med_snd = rl.LoadSound("assets/sounds/player_sword_medium.wav")
+  gs.sword_hit_stone_snd = rl.LoadSound("assets/sounds/player_sword_stone.wav")
+  gs.player_jump_snd = rl.LoadSound("assets/sounds/player_jump.wav")
+
+  fmt.println("[Game] Loading bgm..")
+  bgm := rl.LoadMusicStream("assets/music/bgm.ogg")
+  fmt.println("[Game] End Loading bgm..")
+  rl.PlayMusicStream(bgm)
 
   gs.enemy_definitions["Walker"] = Enemy_Def {
     collider_size = {36, 18},
@@ -692,6 +718,8 @@ main :: proc() {
     if rl.IsKeyPressed(.TAB) {
       gs.debug_draw_enabled = !gs.debug_draw_enabled
     }
+
+    rl.UpdateMusicStream(bgm)
     dt := rl.GetFrameTime()
 
     player := entity_get(gs.player_id)

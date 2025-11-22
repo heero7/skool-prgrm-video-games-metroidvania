@@ -150,8 +150,8 @@ try_jump :: proc(gs: ^Game_State, p: ^Entity) {
     gs.coyote_timer = COYOTE_TIME
   }
 
-  if (Entity_Flags.Grounded in p.flags || gs.coyote_timer > 0) &&
-     gs.jump_timer > 0 {
+  if gs.player_mv_state != .Fall && gs.coyote_timer > 0 && gs.jump_timer > 0 {
+    rl.PlaySound(gs.player_jump_snd)
     p.vel.y = -p.jump_force
     p.flags -= {.Grounded}
     gs.player_mv_state = .Jump
@@ -185,6 +185,14 @@ player_on_enter :: proc(self_id, other_id: Entity_Id) {
   }
 }
 
+player_attack_sfx :: proc(gs: ^Game_State, e: ^Entity) {
+  if int(gs.camera.target.x) % 2 == 0 {
+    rl.PlaySound(gs.sword_swoosh_snd)
+  } else {
+    rl.PlaySound(gs.sword_swoosh_snd_2)
+  }
+}
+
 player_attack_callback :: proc(gs: ^Game_State, p: ^Entity) {
   center := Vec2{p.x, p.y}
   center += {.Left in p.flags ? -30 + p.collider.width : 30, 20}
@@ -211,6 +219,7 @@ player_attack_callback :: proc(gs: ^Game_State, p: ^Entity) {
       gs.attack_recovery_timer = ATTACK_RECOVERY_DURATION
 
       entity_hit(id, dir * 500)
+      rl.PlaySound(gs.sword_hit_med_snd)
     }
   }
 
@@ -232,6 +241,7 @@ player_attack_callback :: proc(gs: ^Game_State, p: ^Entity) {
 
     if rl.CheckCollisionCircleRec(center, 25, rect) {
       falling_log.state = .Falling
+      rl.PlaySound(gs.sword_hit_soft_snd)
     }
   }
 }
