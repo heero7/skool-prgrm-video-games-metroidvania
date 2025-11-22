@@ -51,6 +51,7 @@ LEFT :: Vec2{-1, 0}
 
 PLAYER_SAFE_RESET_TIME :: 1
 
+FIRST_LEVEL_ID :: "95ec7dd0-ac70-11f0-aba9-8934640bd777"
 Enemy_Def :: struct {
   collider_size:       Vec2,
   move_speed:          f32,
@@ -98,6 +99,10 @@ Game_State :: struct {
   sword_hit_med_snd:     Snd,
   sword_hit_stone_snd:   Snd,
   player_jump_snd:       Snd,
+  checkpoints:           [dynamic]Checkpoint,
+  checkpoint_level_iid:  string,
+  checkpoint_iid:        string,
+  orig_spawn_point:      Vec2,
 }
 
 Spike :: struct {
@@ -233,6 +238,11 @@ Door :: struct {
   to_iid:   string,
 }
 
+Checkpoint :: struct {
+  iid:            string,
+  using position: Vec2,
+}
+
 Level :: struct {
   iid:          string,
   name:         string,
@@ -246,6 +256,7 @@ Level :: struct {
   spikes:       [dynamic]Spike,
   falling_logs: [dynamic]Falling_Log,
   doors:        [dynamic]Door,
+  checkpoints:  [dynamic]Checkpoint,
 }
 
 gs: ^Game_State
@@ -267,6 +278,16 @@ level_parse_and_store :: proc(gs: ^Game_State, level: ^Ldtk_Level) {
         switch entity.__identifier {
         case "Player":
           l.player_spawn = Vec2{entity.__worldX, entity.__worldY}
+          gs.orig_spawn_point = Vec2{entity.__worldX, entity.__worldY}
+        case "Checkpoint":
+          append(
+            &l.checkpoints,
+            Checkpoint {
+              iid = strings.clone(entity.iid),
+              x = entity.__worldX,
+              y = entity.__worldY,
+            },
+          )
         case "Door":
           ref := entity.fieldInstances[0].__value.(Ldtk_Entity_Ref)
           pos := Vec2{entity.__worldX, entity.__worldY}
@@ -485,12 +506,14 @@ level_load :: proc(gs: ^Game_State, level: ^Level) {
   player := entity_get(gs.player_id)
 
   player_anim_name: string
+  player_health: int
 
   if player != nil {
     player_anim_name = strings.clone(
       player.current_anim_name,
       context.temp_allocator,
     )
+    player_health = player.health
   }
 
   // Clear all the existing level data.
@@ -501,6 +524,7 @@ level_load :: proc(gs: ^Game_State, level: ^Level) {
   clear(&gs.spikes)
   clear(&gs.falling_logs)
   clear(&gs.doors)
+  clear(&gs.checkpoints)
 
   // Load the new level data.
   append(&gs.entities, ..level.entities[:])
@@ -510,11 +534,13 @@ level_load :: proc(gs: ^Game_State, level: ^Level) {
   append(&gs.spikes, ..level.spikes[:])
   append(&gs.falling_logs, ..level.falling_logs[:])
   append(&gs.doors, ..level.doors[:])
+  append(&gs.checkpoints, ..level.checkpoints[:])
 
   spawn_player(gs)
 
   if player_anim_name != "" {
     player = entity_get(gs.player_id)
+    player.health = player_health
     for k in player.animations {
       if k == player_anim_name {
         player.current_anim_name = k
@@ -600,6 +626,7 @@ spawn_player :: proc(gs: ^Game_State) {
       max_health = 6,
       texture = &gs.player_texture,
       current_anim_name = "idle",
+      on_death = player_on_death,
     },
   )
 
@@ -713,7 +740,7 @@ main :: proc() {
     }
   }
 
-  level_load(gs, &gs.level_definitions["95ec7dd0-ac70-11f0-aba9-8934640bd777"])
+  level_load(gs, &gs.level_definitions[FIRST_LEVEL_ID])
 
   num := len(&gs.colliders)
   assert(num > 0, "🚨 Failed to populate level tiles!")
@@ -929,6 +956,13 @@ main :: proc() {
             1,
             e.debug_color,
           )
+        }
+
+        for c in gs.checkpoints {
+          x := i32(c.x)
+          y := i32(c.y) - 16 * 2
+          rl.DrawText("CheckPoint!", x, y, 1, rl.ORANGE)
+          rl.DrawRectangleLinesEx({c.x, c.y - 16, 32, 32}, 1, rl.ORANGE)
         }
 
         // Draw the safe position

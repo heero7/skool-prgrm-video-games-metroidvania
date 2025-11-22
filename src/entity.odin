@@ -29,6 +29,7 @@ Entity :: struct {
   hit_timer:                  f32,
   hit_duration:               f32,
   hit_response:               Entity_Hit_Response,
+  on_death:                   proc(p: ^Entity, gs: ^Game_State),
 }
 
 Entity_Hit_Response :: enum {
@@ -84,6 +85,9 @@ entity_update :: proc(gs: ^Game_State, dt: f32) {
   for &e in gs.entities {
     if e.health == 0 && .Immortal not_in e.flags {
       e.flags += {.Dead}
+      if e.on_death != nil {
+        e->on_death(gs)
+      }
     }
 
     if e.hit_timer > 0 {
