@@ -29,12 +29,14 @@ JUMP_TIME :: 0.2
 COYOTE_TIME :: 0.15
 ATTACK_COOLDOWN_DURATION :: 0.3
 ATTACK_RECOVERY_DURATION :: 0.2
+DASH_DURATION :: 0.3
+DASH_COOLDOWN :: 1
+DASH_VELOCITY :: 500
 
 // Type Aliases (reduce typing!) Note, they must come after rl definition
 Vec2 :: rl.Vector2
 Rect :: rl.Rectangle
 Snd :: rl.Sound
-//Color :: rl.Color
 
 Direction :: enum {
   Up,
@@ -103,6 +105,19 @@ Game_State :: struct {
   checkpoint_level_iid:  string,
   checkpoint_iid:        string,
   orig_spawn_point:      Vec2,
+  power_ups:             [dynamic]Power_Up,
+  collected_power_ups:   bit_set[Power_Up_Type],
+  dash_timer:            f32,
+  dash_cooldown_timer:   f32,
+}
+
+Power_Up :: struct {
+  using pos: Vec2,
+  type:      Power_Up_Type,
+}
+
+Power_Up_Type :: enum {
+  Dash,
 }
 
 Spike :: struct {
@@ -257,6 +272,7 @@ Level :: struct {
   falling_logs: [dynamic]Falling_Log,
   doors:        [dynamic]Door,
   checkpoints:  [dynamic]Checkpoint,
+  power_ups:    [dynamic]Power_Up,
 }
 
 gs: ^Game_State
@@ -279,6 +295,15 @@ level_parse_and_store :: proc(gs: ^Game_State, level: ^Ldtk_Level) {
         case "Player":
           l.player_spawn = Vec2{entity.__worldX, entity.__worldY}
           gs.orig_spawn_point = Vec2{entity.__worldX, entity.__worldY}
+        case "Power_Up":
+          p_up_name := entity.fieldInstances[0].__value
+          switch p_up_name {
+          case "Dash":
+            append(
+              &l.power_ups,
+              Power_Up{pos = {entity.__worldX, entity.__worldY}, type = .Dash},
+            )
+          }
         case "Checkpoint":
           append(
             &l.checkpoints,
@@ -536,6 +561,13 @@ level_load :: proc(gs: ^Game_State, level: ^Level) {
   append(&gs.doors, ..level.doors[:])
   append(&gs.checkpoints, ..level.checkpoints[:])
 
+  // only append if you haven't collected the power up
+  for power_up in level.power_ups {
+    if power_up.type not_in gs.collected_power_ups {
+      append(&gs.power_ups, power_up)
+    }
+  }
+
   spawn_player(gs)
 
   if player_anim_name != "" {
@@ -611,6 +643,15 @@ spawn_player :: proc(gs: ^Game_State) {
       {timer = 0.05, duration = 0.05, callback = player_attack_callback},
     },
   }
+
+  player_anim_dash := Animation {
+    size   = {120, 80},
+    offset = {52, 42},
+    start  = 4,
+    end    = 5,
+    row    = 3,
+    time   = 0.15,
+  }
   gs.player_id = entity_create(
     {
       x = gs.level.player_spawn.?.x,
@@ -637,6 +678,7 @@ spawn_player :: proc(gs: ^Game_State) {
   p.animations["jump_fall_inbetween"] = player_anim_jump_fall_inbetween
   p.animations["fall"] = player_anim_fall
   p.animations["attack"] = player_anim_attack
+  p.animations["dash"] = player_anim_dash
 
   if pos, ok := gs.level.player_spawn.?; ok {
     gs.safe_position = pos
@@ -741,6 +783,7 @@ main :: proc() {
   }
 
   level_load(gs, &gs.level_definitions[FIRST_LEVEL_ID])
+  gs.collected_power_ups += {.Dash}
 
   num := len(&gs.colliders)
   assert(num > 0, "🚨 Failed to populate level tiles!")
@@ -965,6 +1008,10 @@ main :: proc() {
           rl.DrawRectangleLinesEx({c.x, c.y - 16, 32, 32}, 1, rl.ORANGE)
         }
 
+        for p in gs.power_ups {
+          rl.DrawRectangleLinesEx({p.x, p.y, 16, 16}, 3, rl.GOLD)
+        }
+
         // Draw the safe position
         debug_draw_rect(
           gs.safe_position,
@@ -1009,7 +1056,7 @@ main :: proc() {
     //rl.DrawFPS(20, 20)
 
     rl.BeginMode2D(gs.ui_camera)
-    // Draw Player Health
+    // Draw Player Health & UI
     {
       full_hearts := player.health / 2
       has_half_heart := f32(player.health) / 2 > f32(full_hearts)
@@ -1052,6 +1099,16 @@ main :: proc() {
           rl.WHITE,
         )
         x += 16
+      }
+
+      // Print dash ability status.
+      if .Dash in gs.collected_power_ups {
+        rl.DrawRectangleRounded({72, 16, 48, 16}, 8, 5, {40, 40, 40, 255})
+        if gs.dash_timer <= 0 && gs.dash_cooldown_timer <= 0 {
+          rl.DrawText("Dash O", 76, 19, 2, rl.WHITE)
+        } else {
+          rl.DrawText("Dash X", 76, 19, 2, rl.WHITE)
+        }
       }
     }
     rl.EndMode2D()

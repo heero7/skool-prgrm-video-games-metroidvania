@@ -83,13 +83,23 @@ physics_update :: proc(
     if .Kinematic not_in entity.flags {
       // Iterate a couple of times for stability.
       for _ in 0 ..< PHYSICS_ITERATIONS {
+        /*
+           This proves that this should be separated.
+           The player (and other entities) will have 
+           lots of exceptions to this general rule.
+         */
+        is_player := entity_id == gs.player_id
+        player_is_dashing := gs.player_mv_state == .Dash
+
         step := dt / PHYSICS_ITERATIONS
 
-        entity.vel.y += GRAVITY
-
-        if entity.vel.y > TERMINAL_VELOCITY {
-          entity.vel.y = TERMINAL_VELOCITY
+        if !(is_player && player_is_dashing) {
+          entity.vel.y += GRAVITY
+          if entity.vel.y > TERMINAL_VELOCITY {
+            entity.vel.y = TERMINAL_VELOCITY
+          }
         }
+
         // Like the sebastian lague physics tutorial, we
         // apply physics horizontally and vertically
         // at separate times
@@ -178,6 +188,9 @@ resolve_entity_vs_static_y :: proc(entity: ^Entity, static: Rect) {
     // entity to start drawing.
   } else {
     entity.y = static.y + static.height
+    if entity == entity_get(gs.player_id) {
+      gs.jump_timer = 0
+    }
   }
 
   // No matter what set the velocity to zero and move on.
