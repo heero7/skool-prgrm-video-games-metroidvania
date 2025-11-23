@@ -26,8 +26,9 @@ player_update :: proc(gs: ^Game_State, dt: f32) {
   gs.coyote_timer -= dt
 
   in_dir: Vec2
-  if (rl.IsKeyDown(.RIGHT)) do in_dir.x += 1
-  if (rl.IsKeyDown(.LEFT)) do in_dir.x -= 1
+  // macro keyboard really messes this up
+  if (rl.IsKeyDown(.T)) do in_dir.x += 1
+  if (rl.IsKeyDown(.R)) do in_dir.x -= 1
   if (rl.IsKeyDown(.UP)) do in_dir.y -= 1
   if (rl.IsKeyDown(.DOWN)) do in_dir.y += 1
 
@@ -178,7 +179,7 @@ try_run :: proc(gs: ^Game_State, p: ^Entity) {
 }
 
 try_jump :: proc(gs: ^Game_State, p: ^Entity) {
-  if rl.IsKeyPressed(.V) {
+  if rl.IsKeyPressed(.Y) {
     gs.jump_timer = JUMP_TIME
   }
 
@@ -199,7 +200,7 @@ try_jump :: proc(gs: ^Game_State, p: ^Entity) {
 try_dash :: proc(gs: ^Game_State, p: ^Entity, dir: Vec2) {
   if .Dash not_in gs.collected_power_ups do return
 
-  if rl.IsKeyPressed(.X) {
+  if rl.IsKeyPressed(.I) {
     if gs.dash_cooldown_timer <= 0 {
       dir := dir
 
@@ -221,7 +222,7 @@ try_dash :: proc(gs: ^Game_State, p: ^Entity, dir: Vec2) {
 }
 
 try_attack :: proc(gs: ^Game_State, p: ^Entity) {
-  if rl.IsKeyPressed(.C) {
+  if rl.IsKeyPressed(.U) {
     switch_animation(p, "attack")
     gs.player_mv_state = .Attack
     gs.attack_cooldown_timer = ATTACK_COOLDOWN_DURATION

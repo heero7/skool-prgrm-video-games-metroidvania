@@ -5800,7 +5800,7 @@
 						},
 						{
 							"__identifier": "Power_Up",
-							"__grid": [44,6],
+							"__grid": [5,24],
 							"__pivot": [0,0],
 							"__tags": [],
 							"__tile": null,
@@ -5809,10 +5809,10 @@
 							"width": 16,
 							"height": 16,
 							"defUid": 43,
-							"px": [704,96],
+							"px": [80,384],
 							"fieldInstances": [{ "__identifier": "Power_Up", "__type": "LocalEnum.Power_Up", "__value": "Dash", "__tile": null, "defUid": 45, "realEditorValues": [] }],
-							"__worldX": 2304,
-							"__worldY": 96
+							"__worldX": 1680,
+							"__worldY": 384
 						}
 					]
 				},

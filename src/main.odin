@@ -109,6 +109,15 @@ Game_State :: struct {
   collected_power_ups:   bit_set[Power_Up_Type],
   dash_timer:            f32,
   dash_cooldown_timer:   f32,
+  scene:                 Scene_Type,
+  font_48:               rl.Font,
+  font_64:               rl.Font,
+  bgm:                   rl.Music,
+}
+
+Scene_Type :: enum {
+  Main_Menu,
+  Game,
 }
 
 Power_Up :: struct {
@@ -683,38 +692,9 @@ spawn_player :: proc(gs: ^Game_State) {
   if pos, ok := gs.level.player_spawn.?; ok {
     gs.safe_position = pos
   }
-  //todo: might not need this
-  //t := Animation_Event {
-  //  timer    = 0.15,
-  //  duration = 0.15,
-  //  callback = player_attack_callback,
-  //}
-  //append(&player_anim_attack.timed_events, t)
 }
 
-main :: proc() {
-  rl.SetConfigFlags({.VSYNC_HINT})
-  rl.SetTargetFPS(TARGET_FPS)
-  rl.InitAudioDevice()
-  rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
-
-  args := os.args[1:]
-  fmt.printf("[GameINFO] Command Line: %v\n", args)
-  debug_draw := false
-  if len(args) > 0 && args[0] == "--debug" {
-    debug_draw = true
-  }
-
-  gs = new(Game_State)
-  gs.camera = rl.Camera2D {
-    zoom = ZOOM,
-  }
-  gs.ui_camera = rl.Camera2D {
-    zoom = ZOOM,
-  }
-  gs.debug_draw_enabled = debug_draw
-
-  // Load textures
+game_init :: proc(gs: ^Game_State) {
   gs.player_texture = rl.LoadTexture("assets/textures/player_120x80.png")
   gs.tileset_texture = rl.LoadTexture("assets/textures/tileset.png")
   gs.hearts_texture = rl.LoadTexture("assets/textures/health_hearts.png")
@@ -729,8 +709,8 @@ main :: proc() {
   gs.sword_hit_stone_snd = rl.LoadSound("assets/sounds/sword_hit_stone.wav")
   gs.player_jump_snd = rl.LoadSound("assets/sounds/player_jump.wav")
 
-  bgm := rl.LoadMusicStream("assets/music/bgm.ogg")
-  rl.PlayMusicStream(bgm)
+  gs.bgm = rl.LoadMusicStream("assets/music/bgm.ogg")
+  rl.PlayMusicStream(gs.bgm)
 
   gs.enemy_definitions["Walker"] = Enemy_Def {
     collider_size = {36, 18},
@@ -783,17 +763,80 @@ main :: proc() {
   }
 
   level_load(gs, &gs.level_definitions[FIRST_LEVEL_ID])
-  gs.collected_power_ups += {.Dash}
 
   num := len(&gs.colliders)
   assert(num > 0, "🚨 Failed to populate level tiles!")
 
+  gs.scene = .Game
+}
+
+main_menu_item_draw :: proc(
+  text: cstring,
+  pos: Vec2,
+  color := rl.WHITE,
+  hover_color := rl.YELLOW,
+) -> (
+  pressed: bool,
+) {
+  pos := pos
+  text_size := rl.MeasureTextEx(gs.font_48, text, 48, 0)
+  pos.x -= text_size.x / 2
+  rect := Rect{pos.x, pos.y, text_size.x, text_size.y}
+
+  if rl.CheckCollisionPointRec(rl.GetMousePosition(), rect) {
+    rl.DrawTextEx(gs.font_48, text, pos, 48, 0, hover_color)
+    if rl.IsMouseButtonPressed(.LEFT) {
+      pressed = true
+    }
+  } else {
+    rl.DrawTextEx(gs.font_48, text, pos, 48, 0, color)
+  }
+  return pressed
+}
+
+main_menu_update :: proc(gs: ^Game_State) {
+  for !rl.WindowShouldClose() {
+    center := Vec2{WINDOW_WIDTH, WINDOW_HEIGHT} / 2
+
+    tile_text: cstring = "METROIDVANIA"
+    tile_text_size := rl.MeasureTextEx(gs.font_64, tile_text, 64, 4)
+
+    rl.BeginDrawing()
+    rl.ClearBackground({0, 0, 28, 255})
+
+    rl.DrawTextEx(
+      gs.font_64,
+      tile_text,
+      {center.x - tile_text_size.x / 2, center.y / 2},
+      64,
+      4,
+      rl.WHITE,
+    )
+
+    if main_menu_item_draw("Continue", center, rl.DARKGRAY, rl.DARKGRAY) {
+      // todo:
+    }
+
+    if main_menu_item_draw("New Game", center + {0, 60}) {
+      game_init(gs)
+      return
+    }
+
+    if main_menu_item_draw("Quit", center + {0, 120}) {
+      rl.CloseWindow()
+      return
+    }
+    rl.EndDrawing()
+  }
+}
+
+game_update :: proc(gs: ^Game_State) {
   for !rl.WindowShouldClose() {
     if rl.IsKeyPressed(.TAB) {
       gs.debug_draw_enabled = !gs.debug_draw_enabled
     }
 
-    rl.UpdateMusicStream(bgm)
+    rl.UpdateMusicStream(gs.bgm)
     dt := rl.GetFrameTime()
 
     player := entity_get(gs.player_id)
@@ -1118,5 +1161,41 @@ main :: proc() {
     // clear the array of debug_shapes after drawing
     clear(&gs.debug_shapes)
     free_all(context.temp_allocator)
+  }
+}
+
+main :: proc() {
+  rl.SetConfigFlags({.VSYNC_HINT})
+  rl.SetTargetFPS(TARGET_FPS)
+  rl.InitAudioDevice()
+  rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
+
+
+  args := os.args[1:]
+  fmt.printf("[GameINFO] Command Line: %v\n", args)
+  debug_draw := false
+  if len(args) > 0 && args[0] == "--debug" {
+    debug_draw = true
+  }
+
+  gs = new(Game_State)
+  gs.camera = rl.Camera2D {
+    zoom = ZOOM,
+  }
+  gs.ui_camera = rl.Camera2D {
+    zoom = ZOOM,
+  }
+  gs.debug_draw_enabled = debug_draw
+
+  gs.font_48 = rl.LoadFontEx("assets/fonts/Gogh-ExtraBold.ttf", 48, nil, 256)
+  gs.font_64 = rl.LoadFontEx("assets/fonts/Gogh-ExtraBold.ttf", 64, nil, 256)
+
+  for !rl.WindowShouldClose() {
+    switch gs.scene {
+    case .Main_Menu:
+      main_menu_update(gs)
+    case .Game:
+      game_update(gs)
+    }
   }
 }
