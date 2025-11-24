@@ -30,6 +30,12 @@ Entity :: struct {
   hit_duration:               f32,
   hit_response:               Entity_Hit_Response,
   on_death:                   proc(p: ^Entity, gs: ^Game_State),
+  destination:                Maybe(Vec2),
+  charge_dir:                 Maybe(Vec2),
+  wander_timer:               f32,
+  hop_timer:                  f32,
+  charge_timer:               f32,
+  charge_cooldown_timer:      f32,
 }
 
 Entity_Hit_Response :: enum {
@@ -53,6 +59,9 @@ Entity_Behaviors :: enum {
   Walk,
   Flip_At_Wall,
   Flip_At_Edge,
+  Wander,
+  Hop,
+  Charge_At_Player,
 }
 
 // this adds the entity you create to the entities array!
@@ -83,7 +92,7 @@ entity_get :: proc(id: Entity_Id) -> ^Entity {
 
 entity_update :: proc(gs: ^Game_State, dt: f32) {
   for &e in gs.entities {
-    if e.health == 0 && .Immortal not_in e.flags {
+    if e.health <= 0 && .Immortal not_in e.flags {
       e.flags += {.Dead}
       if e.on_death != nil {
         e->on_death(gs)

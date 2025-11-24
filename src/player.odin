@@ -194,6 +194,11 @@ try_jump :: proc(gs: ^Game_State, p: ^Entity) {
   if gs.player_mv_state != .Fall && gs.coyote_timer > 0 && gs.jump_timer > 0 {
     rl.PlaySound(gs.player_jump_snd)
     p.vel.y = -p.jump_force
+
+    if .HighJump in gs.collected_power_ups {
+      p.vel.y *= 1.25
+    }
+
     p.flags -= {.Grounded}
     gs.player_mv_state = .Jump
     switch_animation(p, "jump")

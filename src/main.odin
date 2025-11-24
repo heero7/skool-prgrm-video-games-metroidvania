@@ -166,6 +166,7 @@ Power_Up :: struct {
 
 Power_Up_Type :: enum {
   Dash,
+  HighJump,
 }
 
 Spike :: struct {
@@ -350,6 +351,14 @@ level_parse_and_store :: proc(gs: ^Game_State, level: ^Ldtk_Level) {
             append(
               &l.power_ups,
               Power_Up{pos = {entity.__worldX, entity.__worldY}, type = .Dash},
+            )
+          case "HighJump":
+            append(
+              &l.power_ups,
+              Power_Up {
+                pos = {entity.__worldX, entity.__worldY},
+                type = .HighJump,
+              },
             )
           }
         case "Checkpoint":
@@ -769,6 +778,51 @@ game_init :: proc(gs: ^Game_State) {
         time = 0.15,
         flags = {.Loop},
       },
+    },
+    initial_animation = "walk",
+    hit_response = .Stop,
+    hit_duration = 0.25,
+  }
+
+  gs.enemy_definitions["Jumper"] = Enemy_Def {
+    collider_size = {50, 48},
+    move_speed = 0,
+    health = 2,
+    behaviors = {.Wander, .Hop},
+    on_hit_damage = 1,
+    texture = rl.LoadTexture("assets/textures/bunny_50x48.png"),
+    animations = {
+      "idle" = Animation{size = {50, 48}},
+      "hop" = Animation {
+        size = {50, 48},
+        offset = {},
+        start = 0,
+        end = 2,
+        time = 0.15,
+        flags = {},
+      },
+    },
+    initial_animation = "idle",
+    hit_response = .Knockback,
+    hit_duration = 0.25,
+  }
+
+  gs.enemy_definitions["Charger"] = Enemy_Def {
+    collider_size = {64, 35},
+    move_speed = 25,
+    health = 3,
+    behaviors = {.Walk, .Flip_At_Wall, .Flip_At_Edge, .Charge_At_Player},
+    on_hit_damage = 2,
+    texture = rl.LoadTexture("assets/textures/pig_64x35.png"),
+    animations = {
+      "walk" = Animation {
+        size = {64, 35},
+        start = 0,
+        end = 3,
+        time = 0.25,
+        flags = {.Loop},
+      },
+      "charge" = Animation{size = {64, 35}, start = 0, end = 3, time = 0.15},
     },
     initial_animation = "walk",
     hit_response = .Stop,
@@ -1335,6 +1389,11 @@ game_update :: proc(gs: ^Game_State) {
           rl.DrawText("Dash X", 76, 19, 2, rl.WHITE)
         }
       }
+
+      if .HighJump in gs.collected_power_ups {
+        rl.DrawRectangleRounded({144, 16, 48, 16}, 8, 5, {40, 40, 40, 255})
+        rl.DrawText("H.Jump", 152, 19, 2, rl.WHITE)
+      }
     }
     rl.EndMode2D()
 
@@ -1384,7 +1443,6 @@ main :: proc() {
     }
 
     when ODIN_OS == .Windows {
-      fmt.println("WIN")
       if err == .Not_Exist {
         fmt.println("[Debug] 🪲 saves directory doesn't exist.")
         m_err := os.make_directory(s_dir_path)
@@ -1397,7 +1455,6 @@ main :: proc() {
     }
 
     when ODIN_OS == .Darwin {
-      fmt.println("MAC")
       if err == .ENOENT {
         fmt.println("[Debug] 🪲 saves directory doesn't exist.")
         m_err := os.make_directory(s_dir_path)
