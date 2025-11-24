@@ -32,6 +32,16 @@ ATTACK_RECOVERY_DURATION :: 0.2
 DASH_DURATION :: 0.3
 DASH_COOLDOWN :: 1
 DASH_VELOCITY :: 500
+BG_COLOR_MAIN_MENU :: rl.Color{0, 0, 28, 255}
+SAVE_ITEM_HEIGHT :: 60
+SAVE_SLOTS :: 10
+SAVE_PANEL_WIDTH :: WINDOW_WIDTH / 2
+SAVE_PANEL_HEIGHT :: WINDOW_HEIGHT / 3
+SCROLL_SPEED :: 20
+
+VERSION_MAJOR :: 0
+VERSION_MINOR :: 1
+VERSION_PATCH :: 0
 
 // Type Aliases (reduce typing!) Note, they must come after rl definition
 Vec2 :: rl.Vector2
@@ -113,11 +123,40 @@ Game_State :: struct {
   font_48:               rl.Font,
   font_64:               rl.Font,
   bgm:                   rl.Music,
+  main_menu_state:       Main_Menu_State,
+  last_update_time:      time.Time,
+  save_data:             Save_Data,
 }
 
 Scene_Type :: enum {
   Main_Menu,
   Game,
+}
+
+Main_Menu_State :: struct {
+  menu_type:               Main_Menu_Type,
+  save_texture:            rl.RenderTexture2D,
+  save_slots:              [SAVE_SLOTS]Save_Data,
+  save_list_scroll_offset: f32,
+}
+
+Main_Menu_Type :: enum {
+  Default,
+  Select_Save_Slot,
+}
+
+Save_Data :: struct {
+  slot:                int,
+  version:             struct {
+    major: int,
+    minor: int,
+    patch: int,
+  },
+  seconds_played:      f64,
+  level_iid:           string,
+  location:            string,
+  checkpoint_iid:      string,
+  collected_power_ups: bit_set[Power_Up_Type],
 }
 
 Power_Up :: struct {
@@ -695,6 +734,8 @@ spawn_player :: proc(gs: ^Game_State) {
 }
 
 game_init :: proc(gs: ^Game_State) {
+  gs.last_update_time = time.now()
+
   gs.player_texture = rl.LoadTexture("assets/textures/player_120x80.png")
   gs.tileset_texture = rl.LoadTexture("assets/textures/tileset.png")
   gs.hearts_texture = rl.LoadTexture("assets/textures/health_hearts.png")
@@ -794,6 +835,45 @@ main_menu_item_draw :: proc(
   return pressed
 }
 
+load_game_item_draw :: proc(
+  slot: int,
+  panel_pos: Vec2,
+  offset: f32,
+  location: string = "",
+  time_played: f64 = 0,
+) -> (
+  pressed: bool,
+) {
+  text: cstring
+
+  if time_played == 0 {
+    text = "New Game"
+  } else {
+    dur := time.Duration(i64(time_played * 1000 * 1000 * 1000))
+    buf: [time.MIN_HMS_LEN]u8
+    time_played_str := time.to_string_hms(dur, buf[:])
+    text = fmt.ctprintf("%d - %s, %s", slot + 1, location, time_played_str)
+  }
+
+  pos := Vec2{0, f32(slot) * SAVE_ITEM_HEIGHT}
+  m_pos := rl.GetMousePosition()
+
+  s_pos := panel_pos + {0, pos.y + offset}
+
+  if rl.CheckCollisionPointRec(
+    m_pos,
+    {s_pos.x, s_pos.y, SAVE_PANEL_WIDTH, SAVE_ITEM_HEIGHT},
+  ) {
+    rl.DrawTextEx(gs.font_48, text, pos, 48, 0, rl.YELLOW)
+    if rl.IsMouseButtonPressed(.LEFT) {
+      pressed = true
+    }
+  } else {
+    rl.DrawTextEx(gs.font_48, text, pos, 48, 0, rl.WHITE)
+  }
+  return pressed
+}
+
 main_menu_update :: proc(gs: ^Game_State) {
   for !rl.WindowShouldClose() {
     center := Vec2{WINDOW_WIDTH, WINDOW_HEIGHT} / 2
@@ -802,7 +882,7 @@ main_menu_update :: proc(gs: ^Game_State) {
     tile_text_size := rl.MeasureTextEx(gs.font_64, tile_text, 64, 4)
 
     rl.BeginDrawing()
-    rl.ClearBackground({0, 0, 28, 255})
+    rl.ClearBackground(BG_COLOR_MAIN_MENU)
 
     rl.DrawTextEx(
       gs.font_64,
@@ -813,20 +893,122 @@ main_menu_update :: proc(gs: ^Game_State) {
       rl.WHITE,
     )
 
-    if main_menu_item_draw("Continue", center, rl.DARKGRAY, rl.DARKGRAY) {
-      // todo:
+    switch gs.main_menu_state.menu_type {
+    case .Default:
+      if main_menu_item_draw("Play", center) {
+        gs.main_menu_state.menu_type = .Select_Save_Slot
+      }
+
+      if main_menu_item_draw("Settings", center + {0, 60}) {
+        // todo:
+        return
+      }
+
+      if main_menu_item_draw("Quit", center + {0, 120}) {
+        rl.CloseWindow()
+        return
+      }
+    case .Select_Save_Slot:
+      target := gs.main_menu_state.save_texture
+      panel_pos := Vec2 {
+        (WINDOW_WIDTH - SAVE_PANEL_WIDTH) / 2,
+        WINDOW_HEIGHT / 2,
+      }
+
+      mouse_wheel_move := rl.GetMouseWheelMove()
+
+      gs.main_menu_state.save_list_scroll_offset = clamp(
+        gs.main_menu_state.save_list_scroll_offset +
+        mouse_wheel_move * SCROLL_SPEED,
+        SAVE_ITEM_HEIGHT - SAVE_ITEM_HEIGHT * SAVE_SLOTS,
+        0,
+      )
+
+      rl.BeginTextureMode(target)
+      rl.ClearBackground(BG_COLOR_MAIN_MENU)
+
+      for sd, i in gs.main_menu_state.save_slots {
+        if sd.seconds_played > 0 {   // means that this is taken
+          if load_game_item_draw(
+            i,
+            panel_pos,
+            gs.main_menu_state.save_list_scroll_offset,
+            sd.location,
+            sd.seconds_played,
+          ) {
+            gs.save_data = sd
+            game_init(gs)
+            level_def := &gs.level_definitions[FIRST_LEVEL_ID]
+
+            if sd.level_iid != "" {
+              level_def, _ = &gs.level_definitions[sd.level_iid]
+              gs.checkpoint_level_iid = sd.level_iid
+              gs.checkpoint_iid = sd.checkpoint_iid
+            }
+
+            for c in level_def.checkpoints {
+              if c.iid == sd.checkpoint_iid {
+                level_def.player_spawn = c.position
+              }
+            }
+
+            gs.level_definitions[level_def.iid] = level_def^
+            gs.collected_power_ups = gs.save_data.collected_power_ups
+
+            level_load(gs, level_def)
+          }
+        } else {
+          // new game
+          if load_game_item_draw(
+            i,
+            panel_pos,
+            gs.main_menu_state.save_list_scroll_offset,
+          ) {
+            game_init(gs)
+
+            gs.save_data.slot = i
+            gs.save_data.version.major = VERSION_MAJOR
+            gs.save_data.version.minor = VERSION_MINOR
+            gs.save_data.version.patch = VERSION_PATCH
+
+            level_load(gs, &gs.level_definitions[FIRST_LEVEL_ID])
+
+            save_data_update(gs)
+
+            gs.save_data.seconds_played = 1
+            savefile_save(gs.save_data)
+          }
+        }
+      }
+
+      rl.EndTextureMode()
+
+      rl.DrawTextureRec(
+        gs.main_menu_state.save_texture.texture,
+        Rect {
+          0,
+          gs.main_menu_state.save_list_scroll_offset - SAVE_PANEL_HEIGHT,
+          SAVE_PANEL_WIDTH,
+          -SAVE_PANEL_HEIGHT,
+        },
+        panel_pos,
+        rl.WHITE,
+      )
+
+      {
+        text :: "Back"
+        size := rl.MeasureTextEx(gs.font_48, text, 48, 0)
+        if main_menu_item_draw(text, {32 + size.x / 2, WINDOW_HEIGHT - 60}) {
+          gs.main_menu_state.menu_type = .Default
+        }
+      }
     }
 
-    if main_menu_item_draw("New Game", center + {0, 60}) {
-      game_init(gs)
-      return
-    }
-
-    if main_menu_item_draw("Quit", center + {0, 120}) {
-      rl.CloseWindow()
-      return
-    }
     rl.EndDrawing()
+
+    if gs.scene != .Main_Menu {
+      return
+    }
   }
 }
 
@@ -1186,6 +1368,68 @@ main :: proc() {
     zoom = ZOOM,
   }
   gs.debug_draw_enabled = debug_draw
+
+  // Check for save files
+  {
+    cp := os.get_current_directory(context.temp_allocator)
+    s_dir_path := fmt.tprintf("%s/saves", cp)
+    s_dir, err := os.open(s_dir_path)
+
+    if err != nil {
+      fmt.printf(
+        "[Debug] 🪲 Error opening save dir path %v \n[Debug] 🪲 Error message: %v\n",
+        s_dir_path,
+        err,
+      )
+    }
+
+    when ODIN_OS == .Windows {
+      fmt.println("WIN")
+      if err == .Not_Exist {
+        fmt.println("[Debug] 🪲 saves directory doesn't exist.")
+        m_err := os.make_directory(s_dir_path)
+        s_dir, err = os.open(s_dir_path)
+
+        if m_err != nil || err != nil {
+          panic("[Game] 🚨 Could not create save directory")
+        }
+      }
+    }
+
+    when ODIN_OS == .Darwin {
+      fmt.println("MAC")
+      if err == .ENOENT {
+        fmt.println("[Debug] 🪲 saves directory doesn't exist.")
+        m_err := os.make_directory(s_dir_path)
+        s_dir, err = os.open(s_dir_path)
+
+        if m_err != nil || err != nil {
+          panic("[Game] 🚨 Could not create save directory")
+        }
+        fmt.println("[Game] Success creating file structure.")
+      }
+    }
+
+    files, read_dir_err := os.read_dir(s_dir, 0, context.temp_allocator)
+    if read_dir_err != nil {
+      fmt.println("sdir: ", s_dir)
+      panic("[Game] 🚨 Failed to read save directory")
+    }
+
+    for f in files {
+      sd, ok := savefile_load(f.fullpath)
+      if ok {
+        gs.main_menu_state.save_slots[sd.slot] = sd
+      }
+    }
+  }
+
+  //Setup Main Menu texture
+  {
+    width :: SAVE_PANEL_WIDTH
+    height :: SAVE_SLOTS * SAVE_ITEM_HEIGHT
+    gs.main_menu_state.save_texture = rl.LoadRenderTexture(width, height)
+  }
 
   gs.font_48 = rl.LoadFontEx("assets/fonts/Gogh-ExtraBold.ttf", 48, nil, 256)
   gs.font_64 = rl.LoadFontEx("assets/fonts/Gogh-ExtraBold.ttf", 64, nil, 256)

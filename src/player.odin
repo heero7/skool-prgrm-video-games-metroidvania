@@ -154,6 +154,8 @@ player_update :: proc(gs: ^Game_State, dt: f32) {
         // update the level definitions and load!
         gs.level_definitions[level_def.iid] = level_def
         level_load(gs, &gs.level_definitions[door.to_level])
+        save_data_update(gs)
+        savefile_save(gs.save_data)
       }
     }
   }
@@ -163,6 +165,7 @@ player_update :: proc(gs: ^Game_State, dt: f32) {
       r := Rect{power_up.x, power_up.y, 16, 16}
       if rl.CheckCollisionRecs(r, player.collider) {
         gs.collected_power_ups += {power_up.type}
+        fmt.printf("[Game] 💪 Power Up: %v\n", power_up.type)
         unordered_remove(&gs.power_ups, i)
         break
       }
@@ -236,6 +239,13 @@ try_activate_checkpoint :: proc(gs: ^Game_State, p: ^Entity) {
       if rl.CheckCollisionRecs(r, p.collider) {
         gs.checkpoint_level_iid = gs.level.iid
         gs.checkpoint_iid = c.iid
+
+        gs.save_data.level_iid = gs.level.iid
+        gs.save_data.checkpoint_iid = c.iid
+
+        save_data_update(gs)
+        savefile_save(gs.save_data)
+
         fmt.println("[Game] ✅ Checkpoint saved!!")
       }
     }
